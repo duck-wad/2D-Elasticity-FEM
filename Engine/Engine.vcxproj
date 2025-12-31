@@ -127,7 +127,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="FileReader.cpp" />
     <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Material.cpp" />
+    <ClCompile Include="Model.cpp" />
+    <ClCompile Include="Solver.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="FileReader.h" />
+    <ClInclude Include="Material.h" />
+    <ClInclude Include="MatrixOperations.h" />
+    <ClInclude Include="Model.h" />
+    <ClInclude Include="Solver.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

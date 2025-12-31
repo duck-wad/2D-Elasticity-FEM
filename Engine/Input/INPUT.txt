@@ -1,10 +1,18 @@
-domain:
- width: 10 height: 10 el_size: 3
+general:
+ solver: GAUSS_SEIDEL tolerance: 0.002 maxiter: 400
+ stages: 2
 
 materials:
- E: 20000 nu: 0.2
-
+ material 1: material_1 
+  elasticity formulation: LinearElastic
+  E: 20000 nu: 0.2
+ material 2: material_2 
+  elasticity formulation: Plastic
+  E: 30000 nu: 0.4
+ 
 nodes:
+ numnodes: 16
+
  node: 1 x: 0.0 y: 0.0
  node: 2 x: 3.3333333333333335 y: 0.0
  node: 3 x: 6.666666666666667 y: 0.0
@@ -23,13 +31,16 @@ nodes:
  node: 16 x: 10.0 y: 10.0
 
 elements:
- element: 1 nodes: (1, 2, 6, 5)
- element: 2 nodes: (2, 3, 7, 6)
- element: 3 nodes: (3, 4, 8, 7)
- element: 4 nodes: (5, 6, 10, 9)
- element: 5 nodes: (6, 7, 11, 10)
- element: 6 nodes: (7, 8, 12, 11)
- element: 7 nodes: (9, 10, 14, 13)
- element: 8 nodes: (10, 11, 15, 14)
- element: 9 nodes: (11, 12, 16, 15)
+ numelem: 9 type: Q4
 
+ element: 1 nodes: (1, 2, 6, 5) material: material_1
+ element: 2 nodes: (2, 3, 7, 6) material: material_1
+ element: 3 nodes: (3, 4, 8, 7) material: material_1
+ element: 4 nodes: (5, 6, 10, 9) material: material_1
+ element: 5 nodes: (6, 7, 11, 10) material: material_1
+ element: 6 nodes: (7, 8, 12, 11) material: material_1
+ element: 7 nodes: (9, 10, 14, 13) material: material_1
+ element: 8 nodes: (10, 11, 15, 14) material: material_1
+ element: 9 nodes: (11, 12, 16, 15) material: material_1
+
+end

@@ -5,11 +5,18 @@ from write_compute_file import *
 
 if __name__ == "__main__":
 
+    # define general information
+    solver = "GAUSSIAN_ELIMINATION"
+    tolerance = 0.001
+    maxiter = 500
+    stages = 1
+    solver_info = [solver, tolerance, maxiter]
+    stage_info = [stages]
+
     # define domain size and element size
     domain_width = 10
     domain_height = 10
     element_size = 3
-    domain_info = [domain_width, domain_height, element_size]
 
     # generate the mesh
     coordinates, node_numbers, elements = generate_quad_mesh(
@@ -24,7 +31,8 @@ if __name__ == "__main__":
     # write to compute file
     write_compute_file(
         filename="INPUT.txt",
-        domain_info=domain_info,
+        solver_info=solver_info,
+        stage_info=stage_info,
         material=material,
         coordinates=coordinates,
         node_numbers=node_numbers,

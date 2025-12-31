@@ -4,7 +4,7 @@ import os
 
 
 def write_compute_file(
-    filename, domain_info, material, coordinates, node_numbers, elements
+    filename, solver_info, stage_info, material, coordinates, node_numbers, elements
 ):
 
     base_dir = os.path.dirname(__file__)
@@ -13,18 +13,18 @@ def write_compute_file(
     full_path = os.path.join(target_dir, filename)
     f = open(full_path, "w")
 
-    # write domain information
-    f.write("domain:" + "\n")
-    f.write(" ")
+    # write general information
+    f.write("general:" + "\n")
     f.write(
-        "width: "
-        + str(domain_info[0])
-        + " height: "
-        + str(domain_info[1])
-        + " el_size: "
-        + str(domain_info[2])
+        " solver: "
+        + solver_info[0]
+        + " tolerance: "
+        + str(solver_info[1])
+        + " maxiter: "
+        + str(solver_info[2])
         + "\n"
     )
+    f.write(" stages: " + str(stage_info[0]) + "\n")
     f.write("\n")
 
     # write materials
@@ -35,6 +35,8 @@ def write_compute_file(
 
     # write node numbers and corresponding coordinates
     f.write("nodes:" + "\n")
+    f.write(" numnodes: " + str(len(node_numbers)) + "\n")
+    f.write("\n")
     for i, node in enumerate(node_numbers):
         f.write(" ")
         f.write(
@@ -50,6 +52,8 @@ def write_compute_file(
 
     # write elements and their corresponding nodes
     f.write("elements:" + "\n")
+    f.write(" numelem: " + str(len(elements)) + " type: Q4" + "\n")
+    f.write("\n")
     for i, element in enumerate(elements):
         f.write(" ")
         f.write("element: " + str(i + 1) + " nodes: " + str(element))

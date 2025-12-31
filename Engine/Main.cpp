@@ -1,6 +1,9 @@
 #include <iostream>
+#include "FileReader.h"
 
 int main() {
-	std::cout << "Hello world" << std::endl;
-	return 0;
+	
+	FileReader filereader = FileReader();
+
+	filereader.ReadFile("Input/INPUT.txt");
 }
