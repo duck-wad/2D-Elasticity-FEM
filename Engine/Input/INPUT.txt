@@ -1,15 +1,12 @@
 general:
  solver: GAUSS_SEIDEL tolerance: 0.002 maxiter: 400
- stages: 2
+ stages: 1
+ assumption: plane_stress thickness: 0.1
 
 materials:
- material 1: material_1 
-  elasticity formulation: LinearElastic
-  E: 20000 nu: 0.2
- material 2: material_2 
-  elasticity formulation: Plastic
-  E: 30000 nu: 0.4
- 
+ material 1: material_1 formulation: LinearElastic E: 20000 nu: 0.2
+ material 2: material_2 formulation: Plastic E: 30000 nu: 0.4
+
 nodes:
  numnodes: 16
 
@@ -33,14 +30,14 @@ nodes:
 elements:
  numelem: 9 type: Q4
 
- element: 1 nodes: (1, 2, 6, 5) material: material_1
- element: 2 nodes: (2, 3, 7, 6) material: material_1
- element: 3 nodes: (3, 4, 8, 7) material: material_1
- element: 4 nodes: (5, 6, 10, 9) material: material_1
- element: 5 nodes: (6, 7, 11, 10) material: material_1
- element: 6 nodes: (7, 8, 12, 11) material: material_1
- element: 7 nodes: (9, 10, 14, 13) material: material_1
- element: 8 nodes: (10, 11, 15, 14) material: material_1
- element: 9 nodes: (11, 12, 16, 15) material: material_1
+ element: 1 nodes: 1 2 6 5 material: material_1
+ element: 2 nodes: 2 3 7 6 material: material_1
+ element: 3 nodes: 3 4 8 7 material: material_1
+ element: 4 nodes: 5 6 10 9 material: material_1
+ element: 5 nodes: 6 7 11 10 material: material_1
+ element: 6 nodes: 7 8 12 11 material: material_1
+ element: 7 nodes: 9 10 14 13 material: material_1
+ element: 8 nodes: 10 11 15 14 material: material_1
+ element: 9 nodes: 11 12 16 15 material: material_1
 
 end

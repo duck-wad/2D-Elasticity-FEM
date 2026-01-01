@@ -24,6 +24,7 @@ private:
     std::string filename;
     void ReadGeneral(const std::string& line, Model& model);
 	void ReadMaterials(const std::string& line, Model& model);
-
+    void ReadNodes(const std::string& line, Model& model);
+    void ReadElements(const std::string& line, Model& model);
 };
 

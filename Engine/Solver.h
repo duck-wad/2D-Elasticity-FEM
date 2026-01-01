@@ -15,7 +15,7 @@ enum class SolverType {
 class Solver
 {
 public:
-	Solver() {}
+	Solver();
 	Solver(std::string& type, double tol = 0.001, int maxiter = 500, int stages = 1);
 	SolverType solverType;
 	double tolerance;

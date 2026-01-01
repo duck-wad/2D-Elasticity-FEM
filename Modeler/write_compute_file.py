@@ -4,7 +4,15 @@ import os
 
 
 def write_compute_file(
-    filename, solver_info, stage_info, material, coordinates, node_numbers, elements
+    filename,
+    solver_info,
+    stage_info,
+    assumption_info,
+    materials,
+    coordinates,
+    node_numbers,
+    elements,
+    element_materials,
 ):
 
     base_dir = os.path.dirname(__file__)
@@ -25,12 +33,31 @@ def write_compute_file(
         + "\n"
     )
     f.write(" stages: " + str(stage_info[0]) + "\n")
+    f.write(
+        " assumption: "
+        + assumption_info[0]
+        + " thickness: "
+        + str(assumption_info[1])
+        + "\n"
+    )
     f.write("\n")
 
     # write materials
     f.write("materials:" + "\n")
-    f.write(" ")
-    f.write("E: " + str(material[0]) + " nu: " + str(material[1]) + "\n")
+    for i, mat in enumerate(materials):
+        f.write(
+            " material "
+            + str(i + 1)
+            + ": "
+            + mat["name"]
+            + " formulation: "
+            + mat["formulation"]
+            + " E: "
+            + str(mat["E"])
+            + " nu: "
+            + str(mat["nu"])
+            + "\n"
+        )
     f.write("\n")
 
     # write node numbers and corresponding coordinates
@@ -56,8 +83,19 @@ def write_compute_file(
     f.write("\n")
     for i, element in enumerate(elements):
         f.write(" ")
-        f.write("element: " + str(i + 1) + " nodes: " + str(element))
+        # Convert element tuple to space-separated string
+        node_str = " ".join(str(node) for node in element)
+        f.write(
+            "element: "
+            + str(i + 1)
+            + " nodes: "
+            + node_str
+            + " material: "
+            + element_materials[i]
+        )
         f.write("\n")
     f.write("\n")
+
+    f.write("end")
 
     f.close()

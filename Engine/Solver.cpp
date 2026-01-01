@@ -1,6 +1,14 @@
 #include "Solver.h"
 #include "MatrixOperations.h"
 
+//defaults
+Solver::Solver() {
+	solverType = SolverType::GAUSSIAN_ELIM;
+	tolerance = 0.001;
+	maxIterations = 500;
+	numStages = 1;
+}
+
 Solver::Solver(std::string& type, double tol, int maxiter, int stages) {
 	tolerance = tol;
 	maxIterations = maxiter;

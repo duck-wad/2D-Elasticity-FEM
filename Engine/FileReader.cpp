@@ -38,6 +38,9 @@ void FileReader::ReadFile(const std::string& filename) {
 			current = Section::ELEMENTS;
 			continue;
 		}
+		if (line == "end") {
+			return;
+		}
 
 		// call the appropriate functions based on the current section
 		switch (current) {
@@ -47,8 +50,13 @@ void FileReader::ReadFile(const std::string& filename) {
 		case Section::MATERIALS:
 			ReadMaterials(line, model);
 			break;
+		case Section::NODES:
+			ReadNodes(line, model);
+			break;
+		case Section::ELEMENTS:
+			ReadElements(line, model);
+			break;
 		}
-
 	}
 
 }
@@ -63,16 +71,26 @@ void FileReader::ReadGeneral(const std::string& line, Model& model) {
 		double tol;
 		int maxiter;
 		ss >> type >> junk >> tol >> junk >> maxiter;
-		model.solver = Solver(type, tol, maxiter);
+		model.GetSolver() = Solver(type, tol, maxiter);
 
 		return;
 	}
 	else if (junk == "stages:") {
 		int stages;
 		ss >> stages;
-		model.solver.numStages = stages;
+		model.GetSolver().numStages = stages;
 
 		return;
+	}
+	else if (junk == "assumption:") {
+		std::string assumption;
+		double thickness = 1; // default of thickness 1 for plane strain
+		ss >> assumption; 
+		if (assumption == "plane_stress") {
+			ss >> junk >> thickness;
+		}
+        model.SetAssumption(assumption);
+        model.SetThickness(thickness);
 	}
 	else
 		throw std::invalid_argument("Not a valid header");
@@ -87,26 +105,90 @@ void FileReader::ReadMaterials(const std::string& line, Model& model) {
 		std::string matname;
 
 		ss >> junk >> matname;
-		model.materials.push_back(Material(matname));
+		model.GetMaterials().emplace(matname, Material(matname));
 
-		return;
-	}
-	// the rest of the headers, modify the last Material in the vector
-	else if (junk == "elasticity") {
 		std::string formulation;
 		ss >> junk >> formulation;
-		model.materials.back().SetFormulation(formulation);
+		model.GetMaterials()[matname].SetFormulation(formulation);
 
-		return;
-	}
-	else if (junk == "E:") {
+		// eventually need to add if else statements for different formulations
 		double E;
 		double nu;
-		ss >> E >> junk >> nu;
-		model.materials.back().SetProperties(E, nu);
+		ss >> junk >> E >> junk >> nu;
+		model.GetMaterials()[matname].SetProperties(E, nu);
 
 		return;
 	}
 	else
 		throw std::invalid_argument("Not a valid header");
+}
+
+void FileReader::ReadNodes(const std::string& line, Model& model) {
+	std::stringstream ss(line);
+	std::string junk;
+
+	ss >> junk;
+	if (junk == "numnodes:") {
+		int num;
+		ss >> num;
+		model.SetNumNodes(num);
+
+		return;
+	}
+	else if (junk == "node:") {
+		int id;
+		std::vector<double> coord(2); // (x, y)
+		ss >> id >> junk >> coord[0] >> junk >> coord[1];
+		model.GetNodes().emplace(id, coord);
+
+		return;
+	}
+	else
+		throw std::invalid_argument("Not a valid header");
+}
+
+void FileReader::ReadElements(const std::string& line, Model& model) {
+	std::stringstream ss(line);
+	std::string junk;
+
+	ss >> junk;
+	if (junk == "numelem:") {
+		int num;
+		std::string type;
+		ss >> num >> junk >> type;
+		model.SetElemType(type);
+		model.SetNumEls(num);
+
+		return;
+	}
+	else if (junk == "element:") {
+		int id;
+		std::vector<int> nodes;
+		std::string matname;
+
+		if (model.GetElemType() == ElementType::Q4)
+			nodes.resize(4);
+		else if (model.GetElemType() == ElementType::T3)
+			nodes.resize(3);
+		else if (model.GetElemType() == ElementType::Q8)
+			nodes.resize(8);
+		else if (model.GetElemType() == ElementType::T6)
+			nodes.resize(6);
+
+		ss >> id >> junk;
+		// need to parse the nodes, which are presented as (1, 2, 3, 4)
+		for (int i = 0; i < nodes.size(); ++i) {
+			ss >> nodes[i];
+		}
+
+		ss >> junk >> matname;
+
+		Material* mat = &(model.GetMaterials().at(matname));
+		Element el = Element(id, nodes, mat);
+
+		model.GetElements().emplace(id, el);
+
+		return;
+	}
+
 }

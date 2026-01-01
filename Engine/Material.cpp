@@ -3,7 +3,7 @@
 Material::Material(std::string& matname) {
 	name = matname;
 	// defaults
-	formulation = ELASTICITY_FORMULATION::LIN_ELASTIC;
+	formulation = ElasticityFormulation::LIN_ELASTIC;
 	E = 200000;
 	nu = 0.3;
 	G = E / (2.0 * (1.0 + nu));
@@ -11,10 +11,10 @@ Material::Material(std::string& matname) {
 
 void Material::SetFormulation(std::string& form) {
 	if (form == "LinearElastic") {
-		formulation = ELASTICITY_FORMULATION::LIN_ELASTIC;
+		formulation = ElasticityFormulation::LIN_ELASTIC;
 	}
 	else if (form == "Plastic") {
-		formulation = ELASTICITY_FORMULATION::PLASTIC;
+		formulation = ElasticityFormulation::PLASTIC;
 	}
 	else
 		throw std::invalid_argument("Not a valid formulation");
