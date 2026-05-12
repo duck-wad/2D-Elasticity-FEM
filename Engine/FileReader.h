@@ -1,26 +1,17 @@
 #pragma once
 #include <iostream>
 #include "Model.h"
+#include "Enums.h"
 
 /* FileReader includes code to read the INPUT.txt file and set up the model 
 Also handles the overall flow of the program */
-
-enum class Section {
-    NONE,
-    GENERAL,
-    MATERIALS,
-    NODES,
-    ELEMENTS,
-    FIXITIES,
-    DIST_LOADS
-};
 
 class FileReader
 {
 public:
     FileReader() {}
 
-    void ReadFile(const std::string& filename);
+    void ReadFile(const std::string& filename, Model& model);
 
 private:
     std::string filename;

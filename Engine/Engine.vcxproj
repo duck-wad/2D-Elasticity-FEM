@@ -136,11 +136,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Element.h" />
+    <ClInclude Include="Enums.h" />
     <ClInclude Include="FileReader.h" />
     <ClInclude Include="Material.h" />
     <ClInclude Include="MatrixOperations.h" />
     <ClInclude Include="Model.h" />
     <ClInclude Include="Solver.h" />
+    <ClInclude Include="Utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

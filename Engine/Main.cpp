@@ -1,9 +1,14 @@
 #include <iostream>
 #include "FileReader.h"
+#include "Model.h"
 
 int main() {
-	
-	FileReader filereader = FileReader();
 
-	filereader.ReadFile("Input/INPUT.txt");
+	Model model;
+	
+	FileReader filereader;
+
+	filereader.ReadFile("Input/INPUT.txt", model);
+
+
 }

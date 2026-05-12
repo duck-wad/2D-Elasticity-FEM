@@ -12,6 +12,7 @@ Model::Model() {
 	numNodes = 0;
 	numEls = 0;
 	numFixities = 0;
+	numDistLoads = 0;
 }
 
 void Model::SetAssumption(std::string assump) {

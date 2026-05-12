@@ -1,12 +1,9 @@
 #pragma once
 #include <iostream>
+#include "Enums.h"
+#include <vector>
 
 /* Material contains code related to materials Ex) stiffness, Poisson ratio */
-
-enum class ElasticityFormulation {
-	LIN_ELASTIC,
-	PLASTIC
-};
 
 class Material
 {
@@ -16,12 +13,18 @@ public:
 	void SetFormulation(std::string& form);
 	void SetProperties(double _E, double _nu);
 
+	void ConstructDMatrix(Assumption assumption);
+	std::vector<std::vector<double>> GetDMatrix() { return D; }
+
 private:
 	std::string name;
-	ElasticityFormulation formulation;
+	Formulation formulation;
 	double E;
 	double nu;
 	double G;
 	bool isOrthotropic = false;
+
+	// constitutive matrix 
+	std::vector<std::vector<double>> D;
 };
 

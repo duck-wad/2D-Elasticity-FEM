@@ -2,15 +2,9 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include "Enums.h"
 
 /* Includes algorithms for solving Ku=x problems */
-
-enum class SolverType {
-	GAUSSIAN_ELIM,
-	LU_DECOMP,
-	CHOLESKY_DECOMP,
-	GAUSS_SEIDEL
-};
 
 class Solver
 {

@@ -7,15 +7,12 @@
 /* the constructor for FileReader will parse the input file and call the appropriate
 functions based on the headers in the compute file */
 
-void FileReader::ReadFile(const std::string& filename) {
+void FileReader::ReadFile(const std::string& filename, Model& model) {
 	std::string line;
 	std::ifstream infile(filename);
 	if (!infile) {
 		std::cerr << "Error: Unable to open file." << std::endl;
 	}
-
-	// create the model object
-	Model model = Model();
 
 	Section current = Section::NONE;
 
@@ -130,6 +127,9 @@ void FileReader::ReadMaterials(const std::string& line, Model& model) {
 		double nu;
 		ss >> junk >> E >> junk >> nu;
 		model.GetMaterials()[matname].SetProperties(E, nu);
+
+		// construct D matrix here. not sure if this is the correct spot rn
+		model.GetMaterials()[matname].ConstructDMatrix(model.GetAssumption());
 
 		return;
 	}

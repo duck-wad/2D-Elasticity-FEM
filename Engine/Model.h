@@ -6,20 +6,11 @@
 #include "Material.h"
 #include "Solver.h"
 #include "Element.h"
+#include "Enums.h"
 
 /* Model contains the code related to the model. Ex) mesh, elements, etc. */
 
-enum class Assumption {
-	PLANE_STRAIN,
-	PLANE_STRESS
-};
 
-enum class ElementType {
-	Q4,
-	T3,
-	Q8,
-	T6
-};
 
 struct DistributedLoad {
 	std::vector<int> edgeNodes;
@@ -55,6 +46,12 @@ public:
 
 	void SetNumDistLoads(int num) { numDistLoads = num; }
 	std::map<int, DistributedLoad>& GetDistLoads() { return distLoads; }
+
+	// method to perform the initiate creation of Element stiffness matrices
+	void Discretize();
+
+	// assemble Element stiffness matrices into the global K
+	void Assemble();
 
 private:
 	Solver solver;
