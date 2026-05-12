@@ -10,7 +10,9 @@ enum class Section {
     GENERAL,
     MATERIALS,
     NODES,
-    ELEMENTS
+    ELEMENTS,
+    FIXITIES,
+    DIST_LOADS
 };
 
 class FileReader
@@ -26,5 +28,7 @@ private:
 	void ReadMaterials(const std::string& line, Model& model);
     void ReadNodes(const std::string& line, Model& model);
     void ReadElements(const std::string& line, Model& model);
+    void ReadFixities(const std::string& line, Model& model);
+    void ReadDistributedLoads(const std::string& line, Model& model);
 };
 

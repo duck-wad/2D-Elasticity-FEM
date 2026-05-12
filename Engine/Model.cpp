@@ -7,6 +7,11 @@ Model::Model() {
 	// by default assume plane strain assumption
 	assumption = Assumption::PLANE_STRAIN;
 	thickness = 1;
+
+	elemType = ElementType::Q4;
+	numNodes = 0;
+	numEls = 0;
+	numFixities = 0;
 }
 
 void Model::SetAssumption(std::string assump) {

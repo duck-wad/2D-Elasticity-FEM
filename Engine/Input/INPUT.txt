@@ -5,7 +5,7 @@ general:
 
 materials:
  material 1: material_1 formulation: LinearElastic E: 20000 nu: 0.2
- material 2: material_2 formulation: Plastic E: 30000 nu: 0.4
+ material 2: material_2 formulation: LinearElastic E: 30000 nu: 0.4
 
 nodes:
  numnodes: 16
@@ -39,5 +39,25 @@ elements:
  element: 7 nodes: 9 10 14 13 material: material_1
  element: 8 nodes: 10 11 15 14 material: material_1
  element: 9 nodes: 11 12 16 15 material: material_1
+
+fixities:
+ numfix: 10
+
+ node: 1 x: 1 y: 1
+ node: 2 x: 1 y: 1
+ node: 3 x: 1 y: 1
+ node: 4 x: 1 y: 1
+ node: 5 x: 1 y: 0
+ node: 9 x: 1 y: 0
+ node: 13 x: 1 y: 0
+ node: 8 x: 1 y: 0
+ node: 12 x: 1 y: 0
+ node: 16 x: 1 y: 0
+
+distributed loads:
+ numloads: 3
+ element: 7 node1: 13 node2: 14 value1: 10.0 value2: 10.0
+ element: 8 node1: 14 node2: 15 value1: 12.0 value2: 12.0
+ element: 9 node1: 15 node2: 16 value1: 14.0 value2: 14.0
 
 end

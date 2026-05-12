@@ -38,6 +38,14 @@ void FileReader::ReadFile(const std::string& filename) {
 			current = Section::ELEMENTS;
 			continue;
 		}
+		if (line == "fixities:") {
+			current = Section::FIXITIES;
+			continue;
+		}
+		if (line == "distributed loads:") {
+			current = Section::DIST_LOADS;
+			continue;
+		}
 		if (line == "end") {
 			return;
 		}
@@ -55,6 +63,12 @@ void FileReader::ReadFile(const std::string& filename) {
 			break;
 		case Section::ELEMENTS:
 			ReadElements(line, model);
+			break;
+		case Section::FIXITIES:
+			ReadFixities(line, model);
+			break;
+		case Section::DIST_LOADS:
+			ReadDistributedLoads(line, model);
 			break;
 		}
 	}
@@ -191,4 +205,56 @@ void FileReader::ReadElements(const std::string& line, Model& model) {
 		return;
 	}
 
+}
+
+void FileReader::ReadFixities(const std::string& line, Model& model) {
+	std::stringstream ss(line);
+	std::string junk;
+
+	ss >> junk;
+	if (junk == "numfix:") {
+		int num;
+		ss >> num;
+		model.SetNumFixities(num);
+		
+		return;
+	}
+	else if (junk == "node:") {
+		int id;
+		std::vector<int> fixity(2);
+
+		ss >> id >> junk >> fixity[0] >> junk >> fixity[1];
+
+		model.GetFixities().emplace(id, fixity);
+
+		return;
+	}
+}
+
+void FileReader::ReadDistributedLoads(const std::string& line, Model& model) {
+	std::stringstream ss(line);
+	std::string junk;
+
+	ss >> junk;
+	if (junk == "numloads:") {
+		int num;
+		ss >> num;
+
+		model.SetNumDistLoads(num);
+
+		return;
+	}
+	else if (junk == "element:") {
+		int id;
+		std::vector<int> nodes(2);
+		std::vector<double> values(2);
+
+		ss >> id >> junk >> nodes[0] >> junk >> nodes[1] >> junk >> values[0] >> junk >> values[1];
+
+		DistributedLoad load;
+		load.edgeNodes = nodes;
+		load.loadValues = values;
+
+		model.GetDistLoads().emplace(id, load);
+	}
 }

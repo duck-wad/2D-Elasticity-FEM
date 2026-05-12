@@ -21,6 +21,11 @@ enum class ElementType {
 	T6
 };
 
+struct DistributedLoad {
+	std::vector<int> edgeNodes;
+	std::vector<double> loadValues;
+};
+
 class Model
 {
 public:
@@ -45,6 +50,12 @@ public:
 
 	std::map<int, Element>& GetElements() { return elements; }
 
+	void SetNumFixities(int num) { numFixities = num; }
+	std::map<int, std::vector<int>>& GetFixities(){ return fixities; }
+
+	void SetNumDistLoads(int num) { numDistLoads = num; }
+	std::map<int, DistributedLoad>& GetDistLoads() { return distLoads; }
+
 private:
 	Solver solver;
 	double thickness;
@@ -58,5 +69,14 @@ private:
 	int numEls;
 	ElementType elemType;
 	std::map<int, Element> elements;
+
+	int numFixities;
+	// store the BCs in map where node ID is key and vector(x, y) is the fixity
+	// 1 mean fixed, 0 mean free
+	std::map<int, std::vector<int>> fixities;
+
+	int numDistLoads;
+	// dist loads store in map where element ID is key which maps to a distributed load struct
+	std::map<int, DistributedLoad> distLoads;
 };
 
