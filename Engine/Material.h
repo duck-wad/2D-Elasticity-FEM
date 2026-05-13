@@ -12,9 +12,11 @@ public:
 	Material(std::string& matname);
 	void SetFormulation(std::string& form);
 	void SetProperties(double _E, double _nu);
+	void SetThickness(double thickness);
 
 	void ConstructDMatrix(Assumption assumption);
-	std::vector<std::vector<double>> GetDMatrix() { return D; }
+	std::vector<std::vector<double>> GetDMatrix() const { return D; }
+	double GetThickness() const { return t; }
 
 private:
 	std::string name;
@@ -22,6 +24,7 @@ private:
 	double E;
 	double nu;
 	double G;
+	double t;
 	bool isOrthotropic = false;
 
 	// constitutive matrix 

@@ -10,5 +10,6 @@ int main() {
 
 	filereader.ReadFile("Input/INPUT.txt", model);
 
+	model.Discretize(); // construct the elemental K matrices
 
 }

@@ -27,6 +27,10 @@ void Material::SetProperties(double _E, double _nu) {
 	G = E / (2.0 * (1.0 + nu));
 }
 
+void Material::SetThickness(double thickness) {
+	t = thickness;
+}
+
 void Material::ConstructDMatrix(Assumption assumption) {
 	if (assumption == Assumption::PLANE_STRESS) {
 		double coef = E / (1.0 - nu * nu);

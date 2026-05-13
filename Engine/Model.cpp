@@ -36,3 +36,13 @@ void Model::SetElemType(std::string type) {
 	else
 		throw std::invalid_argument("Not a valid element type");
 }
+
+void Model::Discretize() {
+	
+	// loop over list of elements and construct element stiffness and force
+	for (auto const& pair : elements) {
+		int id = pair.first;
+		Element element = pair.second;
+		element.ConstructKandF(elemType);
+	}
+}

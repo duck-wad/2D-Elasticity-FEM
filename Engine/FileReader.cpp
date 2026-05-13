@@ -131,6 +131,8 @@ void FileReader::ReadMaterials(const std::string& line, Model& model) {
 		// construct D matrix here. not sure if this is the correct spot rn
 		model.GetMaterials()[matname].ConstructDMatrix(model.GetAssumption());
 
+		model.GetMaterials()[matname].SetThickness(model.GetThickness());
+
 		return;
 	}
 	else
@@ -178,6 +180,7 @@ void FileReader::ReadElements(const std::string& line, Model& model) {
 	else if (junk == "element:") {
 		int id;
 		std::vector<int> nodes;
+		std::vector<std::vector<double>> coords;
 		std::string matname;
 
 		if (model.GetElemType() == ElementType::Q4)
@@ -189,16 +192,23 @@ void FileReader::ReadElements(const std::string& line, Model& model) {
 		else if (model.GetElemType() == ElementType::T6)
 			nodes.resize(6);
 
+		coords.resize(nodes.size());
+
 		ss >> id >> junk;
 		// need to parse the nodes, which are presented as (1, 2, 3, 4)
 		for (int i = 0; i < nodes.size(); ++i) {
 			ss >> nodes[i];
 		}
+		// store the coordinates in the Element
+		for (int i = 0; i < nodes.size(); ++i) {
+			std::vector<double> coord = model.GetNodes()[nodes[i]];
+			coords[i] = coord;
+		}
 
 		ss >> junk >> matname;
 
 		Material* mat = &(model.GetMaterials().at(matname));
-		Element el = Element(id, nodes, mat);
+		Element el = Element(id, nodes, coords, mat);
 
 		model.GetElements().emplace(id, el);
 
