@@ -43,6 +43,6 @@ void Model::Discretize() {
 	for (auto const& pair : elements) {
 		int id = pair.first;
 		Element element = pair.second;
-		element.ConstructKandF(elemType);
+		element.ConstructK(elemType);
 	}
 }
