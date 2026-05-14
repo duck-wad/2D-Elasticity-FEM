@@ -8,3 +8,9 @@ struct DistributedLoad {
 	int edgeIndex;
 	std::vector<int> nodeIndex;
 };
+
+struct GaussPoint {
+	double xi;
+	double eta;
+	double weight;
+};

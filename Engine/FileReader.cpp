@@ -208,7 +208,7 @@ void FileReader::ReadElements(const std::string& line, Model& model) {
 		ss >> junk >> matname;
 
 		Material* mat = &(model.GetMaterials().at(matname));
-		Element el = Element(id, nodes, coords, mat);
+		Element el = Element(id, nodes, coords, mat, model.GetElemType());
 
 		model.GetElements().emplace(id, el);
 
