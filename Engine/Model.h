@@ -7,15 +7,9 @@
 #include "Solver.h"
 #include "Element.h"
 #include "Enums.h"
+#include "Structs.h"
 
 /* Model contains the code related to the model. Ex) mesh, elements, etc. */
-
-
-
-struct DistributedLoad {
-	std::vector<int> edgeNodes;
-	std::vector<double> loadValues;
-};
 
 class Model
 {
@@ -45,7 +39,7 @@ public:
 	std::map<int, std::vector<int>>& GetFixities(){ return fixities; }
 
 	void SetNumDistLoads(int num) { numDistLoads = num; }
-	std::map<int, DistributedLoad>& GetDistLoads() { return distLoads; }
+	std::map<int, std::vector<DistributedLoad>>& GetDistLoads() { return distLoads; }
 
 	// method to perform the initiate creation of Element stiffness matrices
 	void Discretize();
@@ -74,6 +68,7 @@ private:
 
 	int numDistLoads;
 	// dist loads store in map where element ID is key which maps to a distributed load struct
-	std::map<int, DistributedLoad> distLoads;
+	// vector of distributed loads allows for multiple loads per element
+	std::map<int, std::vector<DistributedLoad>> distLoads;
 };
 

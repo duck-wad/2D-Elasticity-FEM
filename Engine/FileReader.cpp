@@ -235,7 +235,12 @@ void FileReader::ReadFixities(const std::string& line, Model& model) {
 
 		ss >> id >> junk >> fixity[0] >> junk >> fixity[1];
 
-		model.GetFixities().emplace(id, fixity);
+		// must check if it is applied to a valid node number
+		if (model.GetNodes().count(id)) {
+			model.GetFixities().emplace(id, fixity);
+		}
+		else
+			throw std::invalid_argument("Fixity not applied to a valid node");
 
 		return;
 	}
@@ -257,14 +262,51 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model) {
 	else if (junk == "element:") {
 		int id;
 		std::vector<int> nodes(2);
-		std::vector<double> values(2);
+		std::vector<double> xvalues(2);
+		std::vector<double> yvalues(2);
 
-		ss >> id >> junk >> nodes[0] >> junk >> nodes[1] >> junk >> values[0] >> junk >> values[1];
+		ss >> id >> junk >> nodes[0] >> junk >> nodes[1] >> junk >> xvalues[0] >> junk >> xvalues[1] >> junk >> yvalues[0] >> junk >> yvalues[1];
 
-		DistributedLoad load;
-		load.edgeNodes = nodes;
-		load.loadValues = values;
+		if (model.GetElements().count(id)) {
+			// must check if the edge the load is applied on is an exterior edge
+			// i.e) the nodes must be adjacent to each other
+			std::vector<int> elemNodes = model.GetElements().at(id).GetNodes();
+			for (size_t i = 0; i < elemNodes.size(); i++) {
 
-		model.GetDistLoads().emplace(id, load);
+				int node1 = elemNodes[i];
+				int node2 = elemNodes[(i + 1) % elemNodes.size()];
+
+				if ((node1 == nodes[0] && node2 == nodes[1]) || (node1 == nodes[1] && node2 == nodes[0])) {
+					// if the nodes are swapped need to swap xvalues[0] and xvalues[1]
+					// ex. if the element reads local node 3 and 4 as 14 13 but the compute has
+					// it written as 13 14
+					// this is pretty shit lol
+					if ((node1 == nodes[1] && node2 == nodes[0])) {
+						double xtemp = xvalues[0];
+						xvalues[0] = xvalues[1];
+						xvalues[1] = xtemp;
+						double ytemp = yvalues[0];
+						yvalues[0] = yvalues[1];
+						yvalues[1] = ytemp;
+					}
+
+					DistributedLoad load;
+					load.edgeIndex = static_cast<int>(i);
+					load.xvalues = xvalues;
+					load.yvalues = yvalues;
+					load.nodeIndex = nodes;
+
+					model.GetDistLoads()[id].push_back(load);
+
+					std::cout << i << std::endl;
+
+					return;
+				}
+			}
+
+			throw std::invalid_argument("Load not applied to a valid edge");
+		}
+		else
+			throw std::invalid_argument("Load not applied to a valid element");
 	}
 }

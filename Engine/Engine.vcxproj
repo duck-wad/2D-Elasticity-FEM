@@ -142,6 +142,7 @@
     <ClInclude Include="MatrixOperations.h" />
     <ClInclude Include="Model.h" />
     <ClInclude Include="Solver.h" />
+    <ClInclude Include="Structs.h" />
     <ClInclude Include="Utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

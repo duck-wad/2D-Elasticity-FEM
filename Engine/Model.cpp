@@ -44,5 +44,8 @@ void Model::Discretize() {
 		int id = pair.first;
 		Element element = pair.second;
 		element.ConstructK(elemType);
+		if (distLoads.count(id)) {
+			element.ConstructF(distLoads[id]);
+		}
 	}
 }
