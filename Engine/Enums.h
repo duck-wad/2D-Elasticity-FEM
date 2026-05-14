@@ -31,5 +31,6 @@ enum class Section {
 	NODES,
 	ELEMENTS,
 	FIXITIES,
+	POINT_LOADS,
 	DIST_LOADS
 };

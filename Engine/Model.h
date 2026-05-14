@@ -38,6 +38,9 @@ public:
 	void SetNumFixities(int num) { numFixities = num; }
 	std::map<int, std::vector<int>>& GetFixities(){ return fixities; }
 
+	void SetNumPointLoads(int num) { numPointLoads = num; }
+	std::map<int, std::vector<double>>& GetPointLoads() { return pointLoads; }
+
 	void SetNumDistLoads(int num) { numDistLoads = num; }
 	std::map<int, std::vector<DistributedLoad>>& GetDistLoads() { return distLoads; }
 
@@ -46,6 +49,14 @@ public:
 
 	// assemble Element stiffness matrices into the global K
 	void Assemble();
+
+	// apply BCs by my modifying K and F
+	void ApplyBC();
+
+	// these are applied directly to the nodes
+	void ApplyPointLoads();
+
+	void Solve();
 
 private:
 	Solver solver;
@@ -66,9 +77,18 @@ private:
 	// 1 mean fixed, 0 mean free
 	std::map<int, std::vector<int>> fixities;
 
+	int numPointLoads;
+	// key is node ID, value is vector for x and y load
+	std::map<int, std::vector<double>> pointLoads;
+
 	int numDistLoads;
 	// dist loads store in map where element ID is key which maps to a distributed load struct
 	// vector of distributed loads allows for multiple loads per element
 	std::map<int, std::vector<DistributedLoad>> distLoads;
+
+	// global matrices
+	std::vector<std::vector<double>> globalK;
+	std::vector<double> globalF;
+	std::vector<double> globalD;
 };
 

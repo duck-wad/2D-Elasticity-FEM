@@ -13,13 +13,13 @@ if __name__ == "__main__":
     solver_info = [solver, tolerance, maxiter]
     stage_info = [stages]
     assumption = "plane_stress"
-    thickness = 0.1
+    thickness = 0.069444
     assumption_info = [assumption, thickness]
 
     # define domain size and element size
-    domain_width = 10
-    domain_height = 10
-    element_size = 3
+    domain_width = 0.12
+    domain_height = 1
+    element_size = 0.02
 
     # generate the mesh
     coordinates, node_numbers, elements = generate_quad_mesh(
@@ -31,14 +31,8 @@ if __name__ == "__main__":
         {
             "name": "material_1",
             "formulation": "LinearElastic",
-            "E": 20000,  # kPa
-            "nu": 0.2,
-        },
-        {
-            "name": "material_2",
-            "formulation": "Plastic",
-            "E": 30000,  # kPa
-            "nu": 0.4,
+            "E": 200000000,  # Pa
+            "nu": 0.29,
         },
     ]
 
@@ -47,7 +41,7 @@ if __name__ == "__main__":
 
     # write to compute file
     write_compute_file(
-        filename="INPUT.txt",
+        filename="INPUTTT.txt",
         solver_info=solver_info,
         stage_info=stage_info,
         assumption_info=assumption_info,

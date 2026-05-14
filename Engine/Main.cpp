@@ -11,5 +11,8 @@ int main() {
 	filereader.ReadFile("Input/INPUT.txt", model);
 
 	model.Discretize(); // construct the elemental K matrices
-
+	model.Assemble();
+	model.ApplyBC();
+	model.ApplyPointLoads();
+	model.Solve();
 }

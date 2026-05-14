@@ -29,25 +29,20 @@ void Element::ConstructKQ4() {
 	std::vector<std::vector<double>> gaussPointCoords;
 
 	// use 2x2 Gauss Quadrature for the Q4 element
-	gaussPointCoords.resize(4);
-	gaussWeights.resize(4);
+	gaussPointCoords.assign(4, std::vector<double>(2, 0.0));
+	gaussWeights.assign(4, 1.0); // all weights are equal to 1.0
 
 	// vector to store the gausspoints 
 	gaussPoints.resize(4);
 
-	for (auto& iter : gaussPointCoords) {
-		iter.resize(2); //each gausspoint xy coord
-	}
-	// for 2x2 quadrature gaussweights are equal
-	gaussWeights[0] = gaussWeights[1] = gaussWeights[2] = gaussWeights[3] = 1.0;
 	double temp = 1.0 / sqrt(3.0);
 	gaussPointCoords[0] = { -temp, -temp };
 	gaussPointCoords[1] = { temp, -temp };
 	gaussPointCoords[2] = { temp, temp };
 	gaussPointCoords[3] = { -temp, temp };
 
-	elemKMatrix.resize(8, std::vector<double>(8, 0.0));
-	elemFVector.resize(8, 0.0);
+	elemKMatrix.assign(8, std::vector<double>(8, 0.0));
+	elemFVector.assign(8, 0.0);
 	std::vector<std::vector<double>> DMatrix = (*matptr).GetDMatrix();
 
 	// for each gausspoint instantiate a GaussPoint struct
@@ -88,11 +83,11 @@ void Element::ConstructKQ4() {
 		gaussPoints[i] = gp;
 	}
 
-	// writeMatrixToCSV(elemKMatrix, "./temp.csv");
+	//writeMatrixToCSV(elemKMatrix, "./temp.csv");
 }
 
 void Element::ConstructFQ4(const std::vector<DistributedLoad>& loads) {
-	elemFVector.resize(8, 0.0);
+	elemFVector.assign(8, 0.0);
 
 	// loop over the vector of loads applied to the element
 	for (size_t i = 0; i < loads.size(); i++) {

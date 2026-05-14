@@ -16,6 +16,9 @@ public:
 	void ConstructK();
 	void ConstructF(const std::vector<DistributedLoad>& loads);
 
+	const std::vector<std::vector<double>>& GetK() const { return elemKMatrix; }
+	const std::vector<double>& GetF() const { return elemFVector; }
+
 private:
 
 	// helper functions for constructing K and F

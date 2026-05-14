@@ -91,7 +91,8 @@ bool isSymmetric(const std::vector<std::vector<T>>& matrix) {
 
 	for (size_t i = 0; i < matrix.size(); i++) {
 		for (size_t j = 0; j < matrix.size(); j++) {
-			if (matrix[i][j] != matrix[j][i]) {
+			//if (matrix[i][j] != matrix[j][i]) {
+			if(matrix[i][j] - matrix[j][i] > 1e-8){
 				return false;
 			}
 		}

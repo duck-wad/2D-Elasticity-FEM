@@ -39,6 +39,10 @@ void FileReader::ReadFile(const std::string& filename, Model& model) {
 			current = Section::FIXITIES;
 			continue;
 		}
+		if (line == "point loads:") {
+			current = Section::POINT_LOADS;
+			continue;
+		}
 		if (line == "distributed loads:") {
 			current = Section::DIST_LOADS;
 			continue;
@@ -64,12 +68,14 @@ void FileReader::ReadFile(const std::string& filename, Model& model) {
 		case Section::FIXITIES:
 			ReadFixities(line, model);
 			break;
+		case Section::POINT_LOADS:
+			ReadPointLoads(line, model);
+			break;
 		case Section::DIST_LOADS:
 			ReadDistributedLoads(line, model);
 			break;
 		}
 	}
-
 }
 
 void FileReader::ReadGeneral(const std::string& line, Model& model) {
@@ -241,6 +247,33 @@ void FileReader::ReadFixities(const std::string& line, Model& model) {
 		}
 		else
 			throw std::invalid_argument("Fixity not applied to a valid node");
+
+		return;
+	}
+}
+
+void FileReader::ReadPointLoads(const std::string& line, Model& model) {
+	std::stringstream ss(line);
+	std::string junk;
+
+	ss >> junk;
+	if (junk == "numloads:") {
+		int num;
+		ss >> num;
+
+		model.SetNumPointLoads(num);
+		return;
+	}
+	else if (junk == "node:") {
+		int id;
+		std::vector<double> values(2);
+		ss >> id >> junk >> values[0] >> junk >> values[1];
+
+		if (model.GetNodes().count(id)) {
+			model.GetPointLoads().emplace(id, values);
+		}
+		else
+			throw std::invalid_argument("Load not applied to valid node");
 
 		return;
 	}

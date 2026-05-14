@@ -3,7 +3,7 @@
 
 //defaults
 Solver::Solver() {
-	solverType = SolverType::GAUSSIAN_ELIM;
+	solverType = SolverType::CHOLESKY_DECOMP;
 	tolerance = 0.001;
 	maxIterations = 500;
 	numStages = 1;
@@ -32,8 +32,25 @@ Solver::Solver(std::string& type, double tol, int maxiter, int stages) {
 
 /* START OF MATRIX SOLVING ALGORITHM FUNCTIONS */
 
+void Solver::Solve(const std::vector<std::vector<double>>& A, const std::vector<double>& b, std::vector<double>& d) {
+	if (solverType == SolverType::GAUSSIAN_ELIM) {
+		GaussianElimination(A, b, d);
+	}
+	else if (solverType == SolverType::LU_DECOMP) {
+		LUDecomposition(A, b, d);
+	}
+	else if (solverType == SolverType::CHOLESKY_DECOMP) {
+		CholeskyDecomposition(A, b, d);
+	}
+	else if (solverType == SolverType::GAUSS_SEIDEL) {
+		GaussSeidel(A, b, d);
+	}
+	else
+		throw std::invalid_argument("Not a valid solver type");
+}
+
 //gaussian elimination using forward elimination to get A to REF, and then backward substitution to solve for x
-void Solver::GaussianElimination(const std::vector<std::vector<double>>& A, const std::vector<double>& b) {
+void Solver::GaussianElimination(const std::vector<std::vector<double>>& A, const std::vector<double>& b, std::vector<double>& d) {
 
 	if (A.size() != b.size() || A[0].size() != b.size()) {
 		throw std::invalid_argument("Matrix and vector must have same dimensions");
@@ -49,14 +66,11 @@ void Solver::GaussianElimination(const std::vector<std::vector<double>>& A, cons
 		throw std::invalid_argument("Matrix is singular, system cannot be solved for a unique solution");
 	}
 
-	std::vector<double> x = BackwardSubstitution(A_REF, b_REF);
-
-	std::cout << "Results from Gaussian Elimination: " << std::endl;
-	PrintVector(x);
+	d = BackwardSubstitution(A_REF, b_REF);
 }
 
 //LU decomposition uses forward elimination to decompose A into L and U, forward substitution to get D, then backward substitution to get x
-void Solver::LUDecomposition(const std::vector<std::vector<double>>& A, const std::vector<double>& b) {
+void Solver::LUDecomposition(const std::vector<std::vector<double>>& A, const std::vector<double>& b, std::vector<double>& d) {
 
 	if (A.size() != b.size() || A[0].size() != b.size()) {
 		throw std::invalid_argument("Matrix and vector must have same dimensions");
@@ -77,20 +91,18 @@ void Solver::LUDecomposition(const std::vector<std::vector<double>>& A, const st
 	//pass b, not b_REF for forwardsub
 	std::vector<double> D = ForwardSubstitution(L, b);
 	//then use backward substitution to get x
-	std::vector<double> x = BackwardSubstitution(U, D);
-
-	std::cout << "Results from LU Decomposition: " << std::endl;
-	PrintVector(x);
+	d = BackwardSubstitution(U, D);
 }
 
 //use Cholesky for symmetric A matrix
-void Solver::CholeskyDecomposition(const std::vector<std::vector<double>>& A, const std::vector<double>& b) {
+void Solver::CholeskyDecomposition(const std::vector<std::vector<double>>& A, const std::vector<double>& b, std::vector<double>& d) {
 
 	if (A.size() != b.size() || A[0].size() != b.size()) {
 		throw std::invalid_argument("Matrix and vector must have same dimensions");
 	}
 	//make sure matrix is symmetric
 	if (!isSymmetric(A)) {
+		// if it is not symmetric force symmetry by taking average
 		throw std::invalid_argument("Matrix must be symmetric for Cholesky decomposition");
 	}
 
@@ -122,40 +134,37 @@ void Solver::CholeskyDecomposition(const std::vector<std::vector<double>>& A, co
 	//perform forward substitution using L and b to get D
 	std::vector<double> D = ForwardSubstitution(L, b);
 	//then use backward substitution to get x
-	std::vector<double> x = BackwardSubstitution(LT, D);
-
-	std::cout << "Results from Cholesky Decomposition: " << std::endl;
-	PrintVector(x);
+	d = BackwardSubstitution(LT, D);
 }
 
-void Solver::GaussSeidel(const std::vector<std::vector<double>>& A, const std::vector<double>& b, const double errorTol, const int maxIter) {
+void Solver::GaussSeidel(const std::vector<std::vector<double>>& A, const std::vector<double>& b, std::vector<double>& d, const double errorTol, const int maxIter) {
 	if (A.size() != b.size() || A[0].size() != b.size()) {
 		throw std::invalid_argument("Matrix and vector must have same dimensions");
 	}
 	//initialize guess to zero
-	std::vector<double> x(A.size(), 0.0);
+	d.assign(A.size(), 0.0);
 	int numIter = 0;
 
 	for (size_t iter = 0; iter < maxIter; iter++) {
 		numIter = iter + 1;
 		//store results from previous iteration
-		std::vector<double> x_old = x;
+		std::vector<double> x_old = d;
 		//compute the solution for each row sequentially starting with the first row
 		for (size_t i = 0; i < A.size(); i++) {
 			double sum = 0.0;
 			for (size_t j = 0; j < i; j++) {
-				sum += A[i][j] * x[j];
+				sum += A[i][j] * d[j];
 			}
 			for (size_t j = i + 1; j < A.size(); j++) {
 				sum += A[i][j] * x_old[j];
 			}
 			//update result for current iteration
-			x[i] = (b[i] - sum) / A[i][i];
+			d[i] = (b[i] - sum) / A[i][i];
 		}
 		//check convergence. error for each value must be below tolerance
 		bool errorFlag = false;
 		for (size_t i = 0; i < A.size(); i++) {
-			double error = (x[i] - x_old[i]) / x[i];
+			double error = (d[i] - x_old[i]) / d[i];
 			if (error > errorTol) errorFlag = true;
 		}
 		if (!errorFlag) break;
@@ -165,10 +174,6 @@ void Solver::GaussSeidel(const std::vector<std::vector<double>>& A, const std::v
 	if (numIter == maxIter) {
 		throw std::runtime_error("Gauss-Seidel method failed to converge within maximum iterations");
 	}
-
-	std::cout << "Results from Gauss-Seidel iterative method: " << std::endl;
-	PrintVector(x);
-	std::cout << "Iterations required: " << numIter << std::endl;
 }
 
 
