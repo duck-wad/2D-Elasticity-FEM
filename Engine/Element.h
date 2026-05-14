@@ -31,13 +31,6 @@ private:
 	std::vector<std::vector<double>> dN;
 };
 
-/* This gausspoint class is for GPs on the edge of element for traction calculation 
-These don't need to be stored in Element since they are only used for preprocessing */
-class GaussPointEdge {
-public:
-	GaussPointEdge() {}
-};
-
 class Element
 {
 public:

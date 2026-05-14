@@ -298,8 +298,6 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model) {
 
 					model.GetDistLoads()[id].push_back(load);
 
-					std::cout << i << std::endl;
-
 					return;
 				}
 			}

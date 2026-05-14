@@ -45,7 +45,7 @@ void Element::ConstructK(ElementType type) {
 			gaussPoints[i] = gp;
 		}
 
-		writeMatrixToCSV(elemKMatrix, "./temp.csv");
+		// writeMatrixToCSV(elemKMatrix, "./temp.csv");
 	}
 	else {
 		throw std::invalid_argument("Element type not supported yet.");
