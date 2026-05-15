@@ -3,8 +3,7 @@
 #include "Model.h"
 #include "Enums.h"
 
-/* FileReader includes code to read the INPUT.txt file and set up the model 
-Also handles the overall flow of the program */
+/* FileReader includes code to read the INPUT.txt file and set up the model */
 
 class FileReader
 {

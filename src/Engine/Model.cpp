@@ -9,6 +9,7 @@ Model::Model() {
 	solver = Solver(default_solver);
 	// by default assume plane strain assumption
 	assumption = Assumption::PLANE_STRAIN;
+	debug = 0;
 	thickness = 1;
 
 	elemType = ElementType::Q4;
@@ -145,5 +146,16 @@ void Model::Solve() {
 
 	solver.Solve(globalK, globalF, globalD);
 
-	writeVectorToCSV(globalD, "./Debug/displacement.csv");
+	// writeVectorToCSV(globalD, "./displacement.csv");
+}
+
+void Model::ProcessResults() {
+
+	// convert global displacements to separate x and y vectors
+	for (int i = 0; i < numNodes * 2; i++) {
+		if (i % 2 == 0)
+			globalDX.push_back(globalD[i]);
+		else
+			globalDY.push_back(globalD[i]);
+	}
 }

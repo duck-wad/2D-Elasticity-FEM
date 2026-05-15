@@ -2,7 +2,6 @@
 #include <Eigen/IterativeLinearSolvers>
 
 #include "Solver.h"
-#include "MatrixOperations.h"
 
 //defaults
 Solver::Solver() {

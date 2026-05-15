@@ -7,6 +7,7 @@ Or:            cd Modeler && python main.py
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from functools import partial
 from pathlib import Path
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSlider,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -39,13 +41,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from engine_results import EngineResults
 from export_input import ExportModel, Material, PointLoad, _fmt_float, export_input_text
 from mesh import RectangleMesh, nodes_on_edge, structured_rectangle_quad
-
-# Repo layout: …/2D Elasticity FEM/Modeler/main.py → Engine/Input/INPUT.txt
-_ENGINE_INPUT_PATH = (
-    Path(__file__).resolve().parent.parent / "Engine" / "Input" / "INPUT.txt"
-)
+from run_engine import run_engine
 
 
 def _spin_no_buttons(box: QDoubleSpinBox | QSpinBox) -> None:
@@ -135,6 +134,8 @@ class MainWindow(QMainWindow):
 
         self._mesh: RectangleMesh | None = None
         self._selected_node_1based: int = -1
+        self._results: EngineResults | None = None
+        self._deform_base_scale: float = 1.0
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -318,6 +319,24 @@ class MainWindow(QMainWindow):
         fl.addWidget(btn_rm_load)
         left.addWidget(gb_load)
 
+        gb_results = QGroupBox("Results")
+        fr = QFormLayout(gb_results)
+        self.chk_engine_debug = QCheckBox("Engine debug output")
+        self.chk_show_deformed = QCheckBox("Show deformed shape")
+        self.chk_show_deformed.setEnabled(False)
+        self.sl_deform_scale = QSlider(Qt.Orientation.Horizontal)
+        self.sl_deform_scale.setRange(1, 500)
+        self.sl_deform_scale.setValue(100)
+        self.sl_deform_scale.setEnabled(False)
+        self.lbl_deform_scale = QLabel("Deformation scale: 100%")
+        self.lbl_deform_scale.setEnabled(False)
+        fr.addRow(self.chk_engine_debug)
+        fr.addRow(self.chk_show_deformed)
+        fr.addRow(self.lbl_deform_scale, self.sl_deform_scale)
+        self.chk_show_deformed.toggled.connect(self._on_deform_display_changed)
+        self.sl_deform_scale.valueChanged.connect(self._on_deform_slider_changed)
+        left.addWidget(gb_results)
+
         btn_export = QPushButton("Compute")
         btn_export.clicked.connect(self._export_file)
         left.addWidget(btn_export)
@@ -421,9 +440,57 @@ class MainWindow(QMainWindow):
         except ValueError as e:
             QMessageBox.warning(self, "Mesh", str(e))
             return
+        self._clear_results()
         self.view.set_mesh(self._mesh)
         self._redraw_scene(fit_view=True)
         self._sync_load_table_after_mesh_change()
+
+    def _clear_results(self) -> None:
+        self._results = None
+        self.chk_show_deformed.setChecked(False)
+        self.chk_show_deformed.setEnabled(False)
+        self.sl_deform_scale.setEnabled(False)
+        self.lbl_deform_scale.setEnabled(False)
+
+    def _deform_scale_factor(self) -> float:
+        return self._deform_base_scale * (self.sl_deform_scale.value() / 100.0)
+
+    def _on_deform_display_changed(self, _checked: bool) -> None:
+        self._redraw_scene(fit_view=False)
+
+    def _on_deform_slider_changed(self, value: int) -> None:
+        self.lbl_deform_scale.setText(f"Deformation scale: {value}%")
+        if self.chk_show_deformed.isChecked():
+            self._redraw_scene(fit_view=False)
+
+    def _node_model_xy(self, index: int, *, deformed: bool) -> tuple[float, float]:
+        assert self._mesh is not None
+        nx, ny = self._mesh.nodes[index]
+        if not deformed or self._results is None:
+            return nx, ny
+        scale = self._deform_scale_factor()
+        ux = self._results.displacements_x[index]
+        uy = self._results.displacements_y[index]
+        return nx + scale * ux, ny + scale * uy
+
+    def _apply_results(self, results: EngineResults) -> None:
+        if self._mesh is None:
+            return
+        results.validate_mesh_nodes(self._mesh.num_nodes)
+        self._results = results
+        max_u = results.max_magnitude()
+        span = max(self._mesh.width, self._mesh.height)
+        if max_u > 1e-20:
+            self._deform_base_scale = 0.15 * span / max_u
+        else:
+            self._deform_base_scale = 1.0
+        self.sl_deform_scale.setValue(100)
+        self.lbl_deform_scale.setText("Deformation scale: 100%")
+        self.chk_show_deformed.setEnabled(True)
+        self.sl_deform_scale.setEnabled(True)
+        self.lbl_deform_scale.setEnabled(True)
+        self.chk_show_deformed.setChecked(True)
+        self._redraw_scene(fit_view=False)
 
     def _sync_load_table_after_mesh_change(self) -> None:
         if self._mesh is None:
@@ -450,27 +517,54 @@ class MainWindow(QMainWindow):
             return
 
         m = self._mesh
+        show_deformed = self.chk_show_deformed.isChecked() and self._results is not None
+
         pen_edge = QPen(QColor(60, 60, 80))
         pen_edge.setCosmetic(True)
         pen_edge.setWidthF(1.0)
         brush_el = QBrush(QColor(230, 235, 245, 80))
+        if show_deformed:
+            pen_edge.setColor(QColor(170, 175, 190))
+            brush_el = QBrush(QColor(230, 235, 245, 40))
+
+        pen_def = QPen(QColor(210, 90, 40))
+        pen_def.setCosmetic(True)
+        pen_def.setWidthF(1.6)
+        brush_def = QBrush(QColor(255, 200, 160, 50))
         fixities = self._collect_fixities()
 
         for a, b, c, d in m.elements:
+            if show_deformed:
+                poly_u = QPolygonF(
+                    [
+                        _scene_xy(*self._node_model_xy(a, deformed=False)),
+                        _scene_xy(*self._node_model_xy(b, deformed=False)),
+                        _scene_xy(*self._node_model_xy(c, deformed=False)),
+                        _scene_xy(*self._node_model_xy(d, deformed=False)),
+                    ]
+                )
+                gi_u = self.scene.addPolygon(poly_u, pen_edge, brush_el)
+                gi_u.setZValue(0)
+
             poly = QPolygonF(
                 [
-                    _scene_xy(*m.nodes[a]),
-                    _scene_xy(*m.nodes[b]),
-                    _scene_xy(*m.nodes[c]),
-                    _scene_xy(*m.nodes[d]),
+                    _scene_xy(*self._node_model_xy(a, deformed=show_deformed)),
+                    _scene_xy(*self._node_model_xy(b, deformed=show_deformed)),
+                    _scene_xy(*self._node_model_xy(c, deformed=show_deformed)),
+                    _scene_xy(*self._node_model_xy(d, deformed=show_deformed)),
                 ]
             )
-            gi = self.scene.addPolygon(poly, pen_edge, brush_el)
-            gi.setZValue(0)
+            if show_deformed:
+                gi = self.scene.addPolygon(poly, pen_def, brush_def)
+                gi.setZValue(1)
+            else:
+                gi = self.scene.addPolygon(poly, pen_edge, brush_el)
+                gi.setZValue(0)
 
         for i, (nx, ny) in enumerate(m.nodes):
             nid = i + 1
-            p = _scene_xy(nx, ny)
+            mx, my = self._node_model_xy(i, deformed=show_deformed)
+            p = _scene_xy(mx, my)
             fix_x, fix_y = fixities.get(nid, (0, 0))
             selected = nid == self._selected_node_1based
             if selected:
@@ -502,9 +596,16 @@ class MainWindow(QMainWindow):
             self.scene.addItem(el)
 
         pad = max(m.width, m.height) * 0.05 + 1e-6
-        self.scene.setSceneRect(
-            -pad, -m.height - pad, m.width + 2 * pad, m.height + 2 * pad
-        )
+        if show_deformed:
+            xs = [self._node_model_xy(i, deformed=True)[0] for i in range(m.num_nodes)]
+            ys = [self._node_model_xy(i, deformed=True)[1] for i in range(m.num_nodes)]
+            x0, x1 = min(0.0, min(xs)) - pad, max(m.width, max(xs)) + pad
+            y0, y1 = min(0.0, min(ys)) - pad, max(m.height, max(ys)) + pad
+            self.scene.setSceneRect(x0, -y1, x1 - x0, y1 - y0)
+        else:
+            self.scene.setSceneRect(
+                -pad, -m.height - pad, m.width + 2 * pad, m.height + 2 * pad
+            )
         if fit_view:
             self.view.resetTransform()
             self.view.fitInView(
@@ -565,6 +666,7 @@ class MainWindow(QMainWindow):
             default_material_name=name,
             fixities=self._collect_fixities(),
             point_loads=self._loads_from_table(),
+            debug=1 if self.chk_engine_debug.isChecked() else 0,
         )
         return em
 
@@ -582,22 +684,57 @@ class MainWindow(QMainWindow):
 
     def _export_file(self) -> None:
         if self._mesh is None:
-            QMessageBox.warning(self, "Export", "Generate a mesh first.")
+            QMessageBox.warning(self, "Compute", "Generate a mesh first.")
             return
-        path = _ENGINE_INPUT_PATH
         try:
             em = self._build_export_model()
             text = export_input_text(em)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Export", str(e))
+            QMessageBox.critical(self, "Compute", str(e))
             return
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-        except OSError as e:
-            QMessageBox.critical(self, "Export", f"Could not write {path}:\n{e}")
+            result = run_engine(text)
+        except (FileNotFoundError, OSError) as e:
+            QMessageBox.critical(
+                self,
+                "Compute",
+                f"Could not run the FEM engine:\n{e}",
+            )
             return
-        self.statusBar().showMessage(f"Wrote {path}", 8000)
+        except subprocess.TimeoutExpired:
+            QMessageBox.critical(self, "Compute", "The FEM engine timed out.")
+            return
+
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            QMessageBox.critical(
+                self,
+                "Compute",
+                f"Engine exited with code {result.returncode}."
+                + (f"\n\n{detail}" if detail else ""),
+            )
+            return
+
+        json_path = result.executable.parent / "OUTPUT.json"
+        if not json_path.is_file():
+            QMessageBox.warning(
+                self,
+                "Compute",
+                f"Engine finished but {json_path.name} was not found.",
+            )
+            return
+        try:
+            results = EngineResults.from_path(json_path)
+            self._apply_results(results)
+        except ValueError as e:
+            QMessageBox.critical(self, "Compute", str(e))
+            return
+
+        msg = f"Wrote {result.input_path} and ran {result.executable.name}"
+        msg += f"; results in {json_path.name}"
+        if self.chk_engine_debug.isChecked():
+            msg += " (debug CSV in debug/)"
+        self.statusBar().showMessage(msg, 12000)
 
 
 def main() -> None:

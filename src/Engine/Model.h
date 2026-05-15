@@ -22,6 +22,8 @@ public:
 	void SetAssumption(std::string assump);
 	double GetThickness() { return thickness; }
 	void SetThickness(double thick) { thickness = thick; }
+	void SetDebug(int d) { debug = d; }
+	int IsDebug() { return debug; }
 	std::map<std::string, Material>& GetMaterials() { return materials; }
 
 	int GetNumNodes() { return numNodes; }
@@ -58,10 +60,18 @@ public:
 
 	void Solve();
 
+	// post processing calculations and reformatting for export
+	void ProcessResults();
+
+	const std::vector<double>& const GetDisplacements() { return globalD; }
+	const std::vector<double>& const GetDisplacementsX() { return globalDX; }
+	const std::vector<double>& const GetDisplacementsY() { return globalDY; }
+
 private:
 	Solver solver;
 	double thickness;
 	Assumption assumption;
+	int debug;
 	std::map<std::string, Material> materials;
 
 	int numNodes;
@@ -90,5 +100,8 @@ private:
 	std::vector<std::vector<double>> globalK;
 	std::vector<double> globalF;
 	std::vector<double> globalD;
+
+	std::vector<double> globalDX;
+	std::vector<double> globalDY;
 };
 

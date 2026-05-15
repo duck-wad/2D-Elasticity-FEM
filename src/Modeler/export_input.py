@@ -40,6 +40,7 @@ class ExportModel:
     # 1-based node id -> (fix_x, fix_y) with 0/1
     fixities: Dict[int, Tuple[int, int]] = field(default_factory=dict)
     point_loads: List[PointLoad] = field(default_factory=list)
+    debug: int = 0  # 1 = engine writes CSV under debug/
 
 
 def _fmt_float(x: float) -> str:
@@ -59,19 +60,18 @@ def export_input_text(model: ExportModel) -> str:
     lines: List[str] = []
 
     lines.append("general:")
-    if model.solver == "CONJUGATE_GRADIENT":
-        lines.append(
-            f" solver: {model.solver} tolerance: {_fmt_float(model.solver_tolerance)} "
-            f"maxiter: {model.solver_maxiter}"
-        )
-    else:
-        lines.append(f" solver: {model.solver}")
+    # FileReader always parses: solver: <TYPE> tolerance: <tol> maxiter: <n>
+    lines.append(
+        f" solver: {model.solver} tolerance: {_fmt_float(model.solver_tolerance)} "
+        f"maxiter: {model.solver_maxiter}"
+    )
     if model.assumption == "plane_stress":
         lines.append(
             f" assumption: plane_stress thickness: {_fmt_float(model.thickness)}"
         )
     else:
         lines.append(" assumption: plane_strain")
+    lines.append(f" debug: {int(model.debug)}")
 
     lines.append("")
     lines.append("materials:")

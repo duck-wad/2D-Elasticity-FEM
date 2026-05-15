@@ -11,7 +11,7 @@ void FileReader::ReadFile(const std::string& filename, Model& model) {
 	std::string line;
 	std::ifstream infile(filename);
 	if (!infile) {
-		std::cerr << "Error: Unable to open file." << std::endl;
+		throw std::invalid_argument("Error: Unable to open file.");
 	}
 
 	Section current = Section::NONE;
@@ -108,6 +108,11 @@ void FileReader::ReadGeneral(const std::string& line, Model& model) {
 		}
         model.SetAssumption(assumption);
         model.SetThickness(thickness);
+	}
+	else if (junk == "debug:") {
+		int debug;
+		ss >> debug;
+		model.SetDebug(debug);
 	}
 	else
 		throw std::invalid_argument("Not a valid header");

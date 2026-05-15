@@ -13,6 +13,13 @@
 *.csv
 *.xlsx
 ./Engine/enc_temp_folder
+/Engine/bin/
+/Engine/obj/
+/src/Engine/bin/
+/src/Engine/obj/
+/dist/
+/build/
+/src/Engine/Input Samples/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
