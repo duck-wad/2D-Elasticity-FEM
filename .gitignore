@@ -17,7 +17,9 @@
 /Engine/obj/
 /src/Engine/bin/
 /src/Engine/obj/
-/dist/
+/dist/_debug
+/dist/INPUT.txt
+/dist/OUTPUT.json
 /build/
 /src/Engine/Input Samples/
 
