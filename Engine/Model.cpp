@@ -1,9 +1,11 @@
 #include "Model.h"
 #include "Utils.h"
 
+#include <Eigen/Sparse>
+
 //default constructor 
 Model::Model() {
-	std::string default_solver = "GAUSSIAN_ELIMINATION";
+	std::string default_solver = "CHOLESKY_DECOMP";
 	solver = Solver(default_solver);
 	// by default assume plane strain assumption
 	assumption = Assumption::PLANE_STRAIN;
@@ -112,8 +114,6 @@ void Model::ApplyBC() {
 		// zero out the force vector to fix the DOF
 		globalF[i] = 0.0;
 	}
-	//writeMatrixToCSV(globalK, "./Debug/fixK.csv");
-	//writeVectorToCSV(globalF, "./Debug/fixF.csv");
 }
 
 void Model::ApplyPointLoads() {
@@ -131,8 +131,6 @@ void Model::ApplyPointLoads() {
 void Model::Solve() {
 
 	globalD.assign(2 * numNodes, 0.0);
-
-	// writeMatrixToCSV(globalK, "./Debug/fuck.csv");
 	
 	// algorithms like cholesky decomp require matrix to be symmetric
 	// there is some tolerance issues causing asymmetry

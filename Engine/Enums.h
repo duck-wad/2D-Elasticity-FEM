@@ -18,10 +18,8 @@ enum class Formulation {
 };
 
 enum class SolverType {
-	GAUSSIAN_ELIM,
-	LU_DECOMP,
 	CHOLESKY_DECOMP,
-	GAUSS_SEIDEL
+	CONJUGATE_GRADIENT
 };
 
 enum class Section {

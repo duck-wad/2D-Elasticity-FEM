@@ -1,0 +1,52 @@
+general:
+ solver: CHOLESKY_DECOMP
+ stages: 1
+ assumption: plane_stress thickness: 0.1
+
+materials:
+ material 1: material_1 formulation: LinearElastic E: 20000 nu: 0.2
+ material 2: material_2 formulation: LinearElastic E: 30000 nu: 0.4
+
+nodes:
+ numnodes: 9
+
+ node: 1 x: 0.0 y: 0.0
+ node: 2 x: 5.0 y: 0.0
+ node: 3 x: 10.0 y: 0.0
+ node: 4 x: 0.0 y: 5.0
+ node: 5 x: 5.0 y: 5.0
+ node: 6 x: 10.0 y: 5.0
+ node: 7 x: 0.0 y: 10.0
+ node: 8 x: 5.0 y: 10.0
+ node: 9 x: 10.0 y: 10.0
+
+elements:
+ numelem: 4 type: Q4
+
+ element: 1 nodes: 1 2 5 4 material: material_1
+ element: 2 nodes: 2 3 6 5 material: material_1
+ element: 3 nodes: 4 5 8 7 material: material_1
+ element: 4 nodes: 5 6 9 8 material: material_1
+
+fixities:
+ numfix: 3
+
+ node: 1 x: 1 y: 1
+ node: 2 x: 1 y: 1
+ node: 3 x: 1 y: 1
+ node: 4 x: 1 y: 0
+ node: 6 x: 1 y: 0
+ node: 7 x: 1 y: 0
+ node: 9 x: 1 y: 0
+
+point loads:
+ numloads: 1
+ 
+ node: 8 fx: 10.0 fy: -10.0
+
+distributed loads:
+ numloads: 2
+ element: 3 node1: 7 node2: 8 tx1: 1.0 tx2: 1.0 ty1: 10.0 ty2: 12.0
+ element: 4 node1: 8 node2: 9 tx1: 1.0 tx2: 1.0 ty1: 12.0 ty2: 14.0
+
+end
