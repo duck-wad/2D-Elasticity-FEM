@@ -4,7 +4,7 @@
 #include "FileReader.h"
 #include "Solver.h"
 
-/* the constructor for FileReader will parse the input file and call the appropriate
+/* the ReadFile function will parse the input file and call the appropriate
 functions based on the headers in the compute file */
 
 void FileReader::ReadFile(const std::string& filename, Model& model) {

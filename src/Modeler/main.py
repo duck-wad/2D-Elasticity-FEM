@@ -136,6 +136,7 @@ class MainWindow(QMainWindow):
         self._selected_node_1based: int = -1
         self._results: EngineResults | None = None
         self._deform_base_scale: float = 1.0
+        self._dist_edge_knm: dict[str, tuple[float, float, float, float]] = {}
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -319,6 +320,44 @@ class MainWindow(QMainWindow):
         fl.addWidget(btn_rm_load)
         left.addWidget(gb_load)
 
+        gb_dist = QGroupBox("Distributed loads (edge traction)")
+        dist_form = QFormLayout(gb_dist)
+        dist_hint = QLabel(
+            "Traction in kN/m (export → N/m). Start and end: along bottom/top "
+            "left→right; along left/right bottom→top. Linear along the full edge."
+        )
+        dist_hint.setWordWrap(True)
+        dist_form.addRow(dist_hint)
+        self.cb_dist_edge = QComboBox()
+        for e in ("bottom", "top", "left", "right"):
+            self.cb_dist_edge.addItem(e.capitalize(), e)
+        self.sp_dtx_s = QDoubleSpinBox()
+        self.sp_dtx_e = QDoubleSpinBox()
+        self.sp_dty_s = QDoubleSpinBox()
+        self.sp_dty_e = QDoubleSpinBox()
+        for sp in (self.sp_dtx_s, self.sp_dtx_e, self.sp_dty_s, self.sp_dty_e):
+            sp.setRange(-1e20, 1e20)
+            sp.setDecimals(4)
+            sp.setValue(0.0)
+            _spin_no_buttons(sp)
+        dist_form.addRow("Edge", self.cb_dist_edge)
+        dist_form.addRow("Tx start (kN/m)", self.sp_dtx_s)
+        dist_form.addRow("Tx end", self.sp_dtx_e)
+        dist_form.addRow("Ty start (kN/m)", self.sp_dty_s)
+        dist_form.addRow("Ty end", self.sp_dty_e)
+        hb_d = QHBoxLayout()
+        btn_dist_apply = QPushButton("Apply to edge")
+        btn_dist_clear = QPushButton("Clear all distributed")
+        btn_dist_apply.clicked.connect(self._dist_apply_edge)
+        btn_dist_clear.clicked.connect(self._dist_clear_all)
+        hb_d.addWidget(btn_dist_apply)
+        hb_d.addWidget(btn_dist_clear)
+        dist_form.addRow(hb_d)
+        self.lbl_dist_status = QLabel("No distributed loads.")
+        self.lbl_dist_status.setWordWrap(True)
+        dist_form.addRow(self.lbl_dist_status)
+        left.addWidget(gb_dist)
+
         gb_results = QGroupBox("Results")
         fr = QFormLayout(gb_results)
         self.chk_engine_debug = QCheckBox("Engine debug output")
@@ -441,6 +480,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Mesh", str(e))
             return
         self._clear_results()
+        self._dist_edge_knm.clear()
+        self._dist_refresh_status()
         self.view.set_mesh(self._mesh)
         self._redraw_scene(fit_view=True)
         self._sync_load_table_after_mesh_change()
@@ -612,6 +653,40 @@ class MainWindow(QMainWindow):
                 self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
             )
 
+    def _dist_refresh_status(self) -> None:
+        if not self._dist_edge_knm:
+            self.lbl_dist_status.setText("No distributed loads.")
+            return
+        parts = []
+        for edge in ("bottom", "top", "left", "right"):
+            if edge not in self._dist_edge_knm:
+                continue
+            txs, txe, tys, tye = self._dist_edge_knm[edge]
+            parts.append(
+                f"{edge}: Tx {_fmt_float(txs)}→{_fmt_float(txe)}, "
+                f"Ty {_fmt_float(tys)}→{_fmt_float(tye)}"
+            )
+        self.lbl_dist_status.setText("; ".join(parts))
+
+    def _dist_apply_edge(self) -> None:
+        if self._mesh is None:
+            QMessageBox.warning(
+                self, "Distributed loads", "Generate a mesh first."
+            )
+            return
+        edge = str(self.cb_dist_edge.currentData())
+        self._dist_edge_knm[edge] = (
+            float(self.sp_dtx_s.value()),
+            float(self.sp_dtx_e.value()),
+            float(self.sp_dty_s.value()),
+            float(self.sp_dty_e.value()),
+        )
+        self._dist_refresh_status()
+
+    def _dist_clear_all(self) -> None:
+        self._dist_edge_knm.clear()
+        self._dist_refresh_status()
+
     def _add_point_load(self) -> None:
         if self._selected_node_1based <= 0:
             QMessageBox.information(self, "Loads", "Select a node on the mesh first.")
@@ -667,6 +742,7 @@ class MainWindow(QMainWindow):
             fixities=self._collect_fixities(),
             point_loads=self._loads_from_table(),
             debug=1 if self.chk_engine_debug.isChecked() else 0,
+            distributed_edge_traction_knm=dict(self._dist_edge_knm),
         )
         return em
 

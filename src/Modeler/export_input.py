@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional, Tuple
 
-from mesh import RectangleMesh
+from mesh import RectangleMesh, distributed_load_file_lines
 
 Assumption = Literal["plane_stress", "plane_strain"]
 
@@ -41,6 +41,10 @@ class ExportModel:
     fixities: Dict[int, Tuple[int, int]] = field(default_factory=dict)
     point_loads: List[PointLoad] = field(default_factory=list)
     debug: int = 0  # 1 = engine writes CSV under debug/
+    # Boundary edge -> (tx_start, tx_end, ty_start, ty_end) kN/m; see mesh.distributed_load_file_lines
+    distributed_edge_traction_knm: Dict[str, Tuple[float, float, float, float]] = field(
+        default_factory=dict
+    )
 
 
 def _fmt_float(x: float) -> str:
@@ -117,6 +121,18 @@ def export_input_text(model: ExportModel) -> str:
         lines.append(
             f" node: {pl.node_id} fx: {_fmt_float(pl.fx)} fy: {_fmt_float(pl.fy)}"
         )
+
+    dist_lines = distributed_load_file_lines(
+        m,
+        model.distributed_edge_traction_knm,
+        fmt_float=_fmt_float,
+    )
+    if dist_lines:
+        lines.append("")
+        lines.append("distributed loads:")
+        lines.append(f" numloads: {len(dist_lines)}")
+        lines.append("")
+        lines.extend(dist_lines)
 
     lines.append("")
     lines.append("end")

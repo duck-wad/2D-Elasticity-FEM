@@ -18,21 +18,21 @@ public:
 
 	/* Getters and setters */
 	Solver& GetSolver() { return solver; }
-	Assumption GetAssumption() { return assumption; }
+	Assumption GetAssumption() const { return assumption; }
 	void SetAssumption(std::string assump);
-	double GetThickness() { return thickness; }
+	double GetThickness() const { return thickness; }
 	void SetThickness(double thick) { thickness = thick; }
 	void SetDebug(int d) { debug = d; }
 	int IsDebug() { return debug; }
 	std::map<std::string, Material>& GetMaterials() { return materials; }
 
-	int GetNumNodes() { return numNodes; }
+	int GetNumNodes() const { return numNodes; }
 	void SetNumNodes(int num) { numNodes = num; }
 	std::map<int, std::vector<double>>& GetNodes() { return nodes; }
 
-	ElementType GetElemType() { return elemType; }
+	ElementType GetElemType() const { return elemType; }
 	void SetElemType(std::string type);
-	int GetNumEls() { return numEls; }
+	int GetNumEls() const { return numEls; }
 	void SetNumEls(int num) { numEls = num; }
 
 	std::map<int, Element>& GetElements() { return elements; }

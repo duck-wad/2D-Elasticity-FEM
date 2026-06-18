@@ -88,8 +88,6 @@ void Model::Assemble() {
 		//writeMatrixToCSV(globalK, "./tempK.csv");
 		//writeVectorToCSV(globalF, "./tempF.csv");
 	}
-
-	// apply point loads at some point
 }
 
 void Model::ApplyBC() {

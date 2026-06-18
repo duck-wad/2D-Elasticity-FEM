@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import Callable, Dict, List, Sequence, Tuple
 
 Vec2 = Tuple[float, float]
 Quad = Tuple[int, int, int, int]  # node indices: bottom-left, bottom-right, top-right, top-left (CCW)
@@ -90,3 +90,90 @@ def nodes_on_edge(mesh: RectangleMesh, edge: str) -> List[int]:
     if edge == "top":
         return [(ny) * (nx + 1) + i for i in range(nx + 1)]
     raise ValueError(f"unknown edge {edge!r}")
+
+
+def _lerp(a: float, b: float, t: float) -> float:
+    return a + (b - a) * t
+
+
+def distributed_load_file_lines(
+    mesh: RectangleMesh,
+    edge_traction_knm: Dict[str, Tuple[float, float, float, float]],
+    *,
+    fmt_float: Callable[[float], str],
+) -> List[str]:
+    """
+    Build INPUT.txt lines for the distributed loads section (no header / numloads).
+
+    edge_traction_knm maps an edge to
+      (tx_start, tx_end, ty_start, ty_end) in kN/m (force per unit length in x and y).
+    Start/end follow the boundary: horizontal edges left→right; vertical bottom→top.
+
+    Values are scaled by 1000 to N/m before writing (same convention as point kN → N).
+    Engine format:
+      element: <id> node1: <a> node2: <b> tx1: .. tx2: .. ty1: .. ty2: ..
+    """
+    nx, ny = mesh.nx, mesh.ny
+    scale = 1000.0
+    lines: List[str] = []
+
+    def fmt4(tx1: float, tx2: float, ty1: float, ty2: float) -> str:
+        return (
+            f" tx1: {fmt_float(tx1)} tx2: {fmt_float(tx2)} "
+            f"ty1: {fmt_float(ty1)} ty2: {fmt_float(ty2)}"
+        )
+
+    edge_order = ("bottom", "top", "left", "right")
+    for e in edge_order:
+        if e not in edge_traction_knm:
+            continue
+        txs, txe, tys, tye = edge_traction_knm[e]
+        txs_n, txe_n = txs * scale, txe * scale
+        tys_n, tye_n = tys * scale, tye * scale
+
+        if e == "bottom":
+            for i in range(nx):
+                eidx = i
+                a, b, c, d = mesh.elements[eidx]
+                n1, n2 = a + 1, b + 1
+                s0, s1 = i / nx, (i + 1) / nx
+                v1x, v2x = _lerp(txs_n, txe_n, s0), _lerp(txs_n, txe_n, s1)
+                v1y, v2y = _lerp(tys_n, tye_n, s0), _lerp(tys_n, tye_n, s1)
+                lines.append(
+                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(v1x, v2x, v1y, v2y)
+                )
+        elif e == "top":
+            for i in range(nx):
+                eidx = (ny - 1) * nx + i
+                a, b, c, d = mesh.elements[eidx]
+                n1, n2 = c + 1, d + 1
+                s0, s1 = i / nx, (i + 1) / nx
+                vx_r, vx_l = _lerp(txs_n, txe_n, s1), _lerp(txs_n, txe_n, s0)
+                vy_r, vy_l = _lerp(tys_n, tye_n, s1), _lerp(tys_n, tye_n, s0)
+                lines.append(
+                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(vx_r, vx_l, vy_r, vy_l)
+                )
+        elif e == "left":
+            for j in range(ny):
+                eidx = j * nx
+                a, b, c, d = mesh.elements[eidx]
+                n1, n2 = d + 1, a + 1
+                s0, s1 = j / ny, (j + 1) / ny
+                vx_t, vx_b = _lerp(txs_n, txe_n, s1), _lerp(txs_n, txe_n, s0)
+                vy_t, vy_b = _lerp(tys_n, tye_n, s1), _lerp(tys_n, tye_n, s0)
+                lines.append(
+                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(vx_t, vx_b, vy_t, vy_b)
+                )
+        else:  # right
+            for j in range(ny):
+                eidx = j * nx + (nx - 1)
+                a, b, c, d = mesh.elements[eidx]
+                n1, n2 = b + 1, c + 1
+                s0, s1 = j / ny, (j + 1) / ny
+                v1x, v2x = _lerp(txs_n, txe_n, s0), _lerp(txs_n, txe_n, s1)
+                v1y, v2y = _lerp(tys_n, tye_n, s0), _lerp(tys_n, tye_n, s1)
+                lines.append(
+                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(v1x, v2x, v1y, v2y)
+                )
+
+    return lines
