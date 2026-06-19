@@ -17,6 +17,14 @@ Model::Model() {
 	numEls = 0;
 	numFixities = 0;
 	numDistLoads = 0;
+
+	isDynamic = 0;
+	timeStepSize = 1.0;
+	numTimeStep = 0;
+
+	isDamped = 0;
+	alphaM = 0;
+	betaK = 0;
 }
 
 void Model::SetAssumption(std::string assump) {
@@ -41,29 +49,160 @@ void Model::SetElemType(std::string type) {
 		throw std::invalid_argument("Not a valid element type");
 }
 
-void Model::Discretize() {
+void Model::SetDamping(int d, double alpha, double beta) {
+	isDamped = d;
+	alphaM = alpha;
+	betaK = beta;
+}
 
-	// loop over list of elements and construct element stiffness and force
+// logic for assembling the global K, C, and M matrices
+void Model::Assemble() {
+	DiscretizeK();
+	AssembleK();
+	if (isDynamic) {
+		DiscretizeM();
+		DiscretizeC();
+		AssembleM();
+		AssembleC();
+	}
+
+	DiscretizeF();
+	AssembleF();
+
+	ApplyPointLoads();
+	ApplyBC();
+}
+
+/* METHODS FOR CONSTRUCTING ELEMENTAL MATRICES */
+
+void Model::DiscretizeK() {
+
+	// loop over list of elements and construct element stiffness
 	for (auto& pair : elements) {
 		int id = pair.first;
 		Element& element = pair.second;
 		element.ConstructK();
+	}
+}
+
+void Model::DiscretizeF() {
+	for (auto& pair : elements) {
+		int id = pair.first;
+		Element& element = pair.second;
 		if (distLoads.count(id)) {
 			element.ConstructF(distLoads[id]);
 		}
 	}
 }
 
-void Model::Assemble() {
+void Model::DiscretizeM() {
+	//loop over list of elements construct elemental mass if model is dynamic
+	for (auto& pair : elements) {
+		Element& element = pair.second;
+		element.ConstructM();
+	}
+}
+
+void Model::DiscretizeC() {
+	for (auto& pair : elements) {
+		Element& element = pair.second;
+		element.ConstructC(GetAlphaM(), GetBetaK());
+	}
+}
+
+/* METHODS FOR GLOBAL ASSEMBLY */
+
+void Model::AssembleK() {
 
 	// resize global matrices as 2xnumnodes
 	globalK.assign(2 * numNodes, std::vector<double>(2 * numNodes, 0.0));
-	globalF.assign(2 * numNodes, 0.0);
 
 	for (const auto& pair : elements) {
 
 		const Element& element = pair.second;
 		const auto& elemK = element.GetK();
+		const auto& elemNodes = element.GetNodes();
+
+		// store the DOFs in a vector
+		// ex. node 1 has DOFs 0 and 1
+		std::vector<int> dofMap;
+
+		for (int node : elemNodes) {
+			dofMap.push_back(2 * (node - 1));
+			dofMap.push_back(2 * (node - 1) + 1);
+		}
+
+		for (size_t i = 0; i < dofMap.size(); i++) {
+			for (size_t j = 0; j < dofMap.size(); j++) {
+
+				globalK[dofMap[i]][dofMap[j]] += elemK[i][j];
+			}
+		}
+	}
+}
+
+void Model::AssembleM() {
+	// resize global matrices as 2xnumnodes
+	globalM.assign(2 * numNodes, std::vector<double>(2 * numNodes, 0.0));
+
+	for (const auto& pair : elements) {
+
+		const Element& element = pair.second;
+		const auto& elemM = element.GetM();
+		const auto& elemNodes = element.GetNodes();
+
+		// store the DOFs in a vector
+		// ex. node 1 has DOFs 0 and 1
+		std::vector<int> dofMap;
+
+		for (int node : elemNodes) {
+			dofMap.push_back(2 * (node - 1));
+			dofMap.push_back(2 * (node - 1) + 1);
+		}
+
+		for (size_t i = 0; i < dofMap.size(); i++) {
+			for (size_t j = 0; j < dofMap.size(); j++) {
+
+				globalM[dofMap[i]][dofMap[j]] += elemM[i][j];
+			}
+		}
+	}
+}
+
+
+void Model::AssembleC() {
+	// resize global matrices as 2xnumnodes
+	globalC.assign(2 * numNodes, std::vector<double>(2 * numNodes, 0.0));
+
+	for (const auto& pair : elements) {
+
+		const Element& element = pair.second;
+		const auto& elemC = element.GetC();
+		const auto& elemNodes = element.GetNodes();
+
+		// store the DOFs in a vector
+		// ex. node 1 has DOFs 0 and 1
+		std::vector<int> dofMap;
+
+		for (int node : elemNodes) {
+			dofMap.push_back(2 * (node - 1));
+			dofMap.push_back(2 * (node - 1) + 1);
+		}
+
+		for (size_t i = 0; i < dofMap.size(); i++) {
+			for (size_t j = 0; j < dofMap.size(); j++) {
+
+				globalC[dofMap[i]][dofMap[j]] += elemC[i][j];
+			}
+		}
+	}
+}
+
+void Model::AssembleF() {
+	globalF.assign(2 * numNodes, 0.0);
+	for (const auto& pair : elements) {
+
+		const Element& element = pair.second;
 		const auto& elemF = element.GetF();
 		const auto& elemNodes = element.GetNodes();
 
@@ -79,14 +218,20 @@ void Model::Assemble() {
 		for (size_t i = 0; i < dofMap.size(); i++) {
 
 			globalF[dofMap[i]] += elemF[i];
-
-			for (size_t j = 0; j < dofMap.size(); j++) {
-
-				globalK[dofMap[i]][dofMap[j]] += elemK[i][j];
-			}
 		}
-		//writeMatrixToCSV(globalK, "./tempK.csv");
-		//writeVectorToCSV(globalF, "./tempF.csv");
+	}
+}
+
+// operate directly on the global force vector
+void Model::ApplyPointLoads() {
+
+	for (auto const& pair : pointLoads) {
+		int dof = 2 * (pair.first - 1);
+		double xload = pair.second[0];
+		double yload = pair.second[1];
+
+		globalF[dof] += xload;
+		globalF[dof + 1] += yload;
 	}
 }
 
@@ -112,18 +257,6 @@ void Model::ApplyBC() {
 		globalK[i][i] = 1.0;
 		// zero out the force vector to fix the DOF
 		globalF[i] = 0.0;
-	}
-}
-
-void Model::ApplyPointLoads() {
-
-	for (auto const& pair : pointLoads) {
-		int dof = 2 * (pair.first - 1);
-		double xload = pair.second[0];
-		double yload = pair.second[1];
-
-		globalF[dof] += xload;
-		globalF[dof + 1] += yload;
 	}
 }
 

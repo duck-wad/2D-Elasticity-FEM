@@ -19,7 +19,7 @@ private:
     void ReadNodes(const std::string& line, Model& model);
     void ReadElements(const std::string& line, Model& model);
     void ReadFixities(const std::string& line, Model& model);
-    void ReadPointLoads(const std::string& line, Model& model);
-    void ReadDistributedLoads(const std::string& line, Model& model);
+    void ReadPointLoads(const std::string& line, Model& model, std::ifstream& infile);
+    void ReadDistributedLoads(const std::string& line, Model& model, std::ifstream& infile);
 };
 

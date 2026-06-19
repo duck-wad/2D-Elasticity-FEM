@@ -11,18 +11,21 @@ public:
 	Material() {}
 	Material(std::string& matname);
 	void SetFormulation(std::string& form);
-	void SetProperties(double _E, double _nu);
+	void SetProperties(double _E, double _nu, double gamma);
 	void SetThickness(double thickness);
 
 	void ConstructDMatrix(Assumption assumption);
 	std::vector<std::vector<double>> GetDMatrix() const { return D; }
 	double GetThickness() const { return t; }
+	double GetDensity() const { return density; }
 
 private:
 	std::string name;
 	Formulation formulation;
 	double E;
 	double nu;
+	double unit_weight; // units are N/m3
+	double density;
 	double G;
 	double t;
 	bool isOrthotropic = false;

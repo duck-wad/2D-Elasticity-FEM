@@ -7,6 +7,8 @@ Material::Material(std::string& matname) {
 	formulation = Formulation::LIN_ELASTIC;
 	E = 200000;
 	nu = 0.3;
+	unit_weight = 20000;
+	density = unit_weight / GRAVITY;
 	G = E / (2.0 * (1.0 + nu));
 }
 
@@ -21,10 +23,12 @@ void Material::SetFormulation(std::string& form) {
 		throw std::invalid_argument("Not a valid formulation");
 }
 
-void Material::SetProperties(double _E, double _nu) {
+void Material::SetProperties(double _E, double _nu, double gamma) {
 	E = _E;
 	nu = _nu;
 	G = E / (2.0 * (1.0 + nu));
+	unit_weight = gamma;
+	density = unit_weight / GRAVITY;
 }
 
 void Material::SetThickness(double thickness) {

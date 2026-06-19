@@ -69,10 +69,10 @@ void FileReader::ReadFile(const std::string& filename, Model& model) {
 			ReadFixities(line, model);
 			break;
 		case Section::POINT_LOADS:
-			ReadPointLoads(line, model);
+			ReadPointLoads(line, model, infile);
 			break;
 		case Section::DIST_LOADS:
-			ReadDistributedLoads(line, model);
+			ReadDistributedLoads(line, model, infile);
 			break;
 		}
 	}
@@ -114,6 +114,28 @@ void FileReader::ReadGeneral(const std::string& line, Model& model) {
 		ss >> debug;
 		model.SetDebug(debug);
 	}
+	else if (junk == "dynamic:") {
+		int isDynamic;
+		double stepSize;
+		int numStep;
+		ss >> isDynamic >> junk >> stepSize >> junk >> numStep;
+		model.SetIsDynamic(isDynamic);
+		model.SetTimeStepSize(stepSize);
+		model.SetNumTimeSteps(numStep);
+	}
+	else if (junk == "damping:") {
+		int isDamped;
+		double alpha, beta;
+		ss >> isDamped >> junk;
+		if (isDamped) {
+			ss >> alpha >> junk >> beta;
+		}
+		else {
+			alpha = 0.0;
+			beta = 0.0;
+		}
+		model.SetDamping(isDamped, alpha, beta);
+	}
 	else
 		throw std::invalid_argument("Not a valid header");
 }
@@ -136,8 +158,9 @@ void FileReader::ReadMaterials(const std::string& line, Model& model) {
 		// eventually need to add if else statements for different formulations
 		double E;
 		double nu;
-		ss >> junk >> E >> junk >> nu;
-		model.GetMaterials()[matname].SetProperties(E, nu);
+		double gamma;
+		ss >> junk >> E >> junk >> nu >> junk >> gamma;
+		model.GetMaterials()[matname].SetProperties(E, nu, gamma);
 
 		// construct D matrix here. not sure if this is the correct spot rn
 		model.GetMaterials()[matname].ConstructDMatrix(model.GetAssumption());
@@ -257,7 +280,7 @@ void FileReader::ReadFixities(const std::string& line, Model& model) {
 	}
 }
 
-void FileReader::ReadPointLoads(const std::string& line, Model& model) {
+void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifstream& infile) {
 	std::stringstream ss(line);
 	std::string junk;
 
@@ -282,9 +305,60 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model) {
 
 		return;
 	}
+	else if (junk == "numdynamicloads:") {
+
+		int num = 0;
+		ss >> num;
+
+		if (!model.IsDynamic() && num != 0) {
+			throw std::invalid_argument("Static analysis cannot have a dynamic load");
+		}
+
+		model.SetNumDynamicPointLoads(num);
+		return;
+	}
+	else if (junk == "start") {
+		std::string templine;
+		int currentStep = 0;
+		double currentTime = 0.0;
+		while (std::getline(infile, templine)) {
+			std::stringstream ss(templine);
+			ss >> junk;
+			if (junk == "stop")
+				break;
+			else if (junk == "time:") {
+				ss >> currentTime >> junk >> currentStep;
+				continue;
+			}
+			else if (junk == "node:") {
+				int id;
+				double scale;
+				ss >> id >> junk >> scale;
+				// check if this node exists in the point loads
+				if (!model.GetPointLoads().count(id))
+					throw std::invalid_argument("Dynamic load is not applied to valid node");
+				else 
+					model.GetPointLoadHistory()[id].push_back(scale);
+			}
+		}
+		// double check
+		if (currentStep != model.GetNumTimeSteps())
+			throw std::invalid_argument("Time history points do not match the number of time steps");
+		if (model.GetNumDynamicPointLoads() != model.GetPointLoadHistory().size())
+			throw std::invalid_argument("Number of dynamic loads is invalid");
+		
+		// if there is a case where there are some static point loads included with the dynamic point loads
+		// to simplify things later, include scalers for those static point loads but make them all 1.0
+		// i hope this is not bad idea
+		for (const auto& [key, value] : model.GetPointLoads()) {
+			if (model.GetPointLoadHistory().find(key) == model.GetPointLoadHistory().end()) {
+				model.GetPointLoadHistory()[key] = std::vector<double>(model.GetNumTimeSteps(), 1.0);
+			}
+		}
+	}
 }
 
-void FileReader::ReadDistributedLoads(const std::string& line, Model& model) {
+void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std::ifstream& infile) {
 	std::stringstream ss(line);
 	std::string junk;
 
@@ -344,5 +418,52 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model) {
 		}
 		else
 			throw std::invalid_argument("Load not applied to a valid element");
+	}
+	else if (junk == "numdynamicloads:") {
+		int num = 0;
+		ss >> num;
+
+		if (!model.IsDynamic() && num != 0) {
+			throw std::invalid_argument("Static analysis cannot have a dynamic load");
+		}
+
+		model.SetNumDynamicDistLoads(num);
+		return;
+	}
+	else if (junk == "start") {
+		std::string templine;
+		int currentStep = 0;
+		double currentTime = 0.0;
+		while (std::getline(infile, templine)) {
+			std::stringstream ss(templine);
+			ss >> junk;
+			if (junk == "stop")
+				break;
+			else if (junk == "time:") {
+				ss >> currentTime >> junk >> currentStep;
+				continue;
+			}
+			else if (junk == "element:") {
+				int id;
+				double scale;
+				ss >> id >> junk >> scale;
+				// check if this element exists in the distributed loads
+				if (!model.GetDistLoads().count(id))
+					throw std::invalid_argument("Dynamic load is not applied to valid node");
+				else
+					model.GetDistLoadHistory()[id].push_back(scale);
+			}
+		}
+		// double check
+		if (currentStep != model.GetNumTimeSteps())
+			throw std::invalid_argument("Time history points do not match the number of time steps");
+		if (model.GetNumDynamicDistLoads() != model.GetDistLoadHistory().size())
+			throw std::invalid_argument("Number of dynamic loads is invalid");
+
+		for (const auto& [key, value] : model.GetDistLoads()) {
+			if (model.GetDistLoadHistory().find(key) == model.GetDistLoadHistory().end()) {
+				model.GetDistLoadHistory()[key] = std::vector<double>(model.GetNumTimeSteps(), 1.0);
+			}
+		}
 	}
 }

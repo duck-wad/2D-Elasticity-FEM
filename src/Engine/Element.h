@@ -9,17 +9,23 @@
 class Element
 {
 public:
-	Element(int _id, const std::vector<int>& _nodes, const std::vector<std::vector<double>>& coords, const Material* mat, ElementType _type) : id(_id), nodes(_nodes), coordinates(coords), matptr(mat), type(_type) {}
+	Element(int _id, const std::vector<int>& _nodes, const std::vector<std::vector<double>>& coords, const Material* mat, ElementType _type);
 
 	const std::vector<int>& GetNodes() const { return nodes; }
 
 	void ConstructK();
+	void ConstructM();
+	void ConstructC(double alpha, double beta);
 	void ConstructF(const std::vector<DistributedLoad>& loads);
 
 	const std::vector<std::vector<double>>& GetK() const { return elemKMatrix; }
+	const std::vector<std::vector<double>>& GetM() const { return elemMMatrix; }
+	const std::vector<std::vector<double>>& GetC() const { return elemCMatrix; }
 	const std::vector<double>& GetF() const { return elemFVector; }
 
 private:
+
+	void ComputeArea();
 
 	// helper functions for constructing K and F
 	void ConstructKQ4();
@@ -37,7 +43,11 @@ private:
 	std::vector<std::vector<double>> coordinates;
 	const Material* matptr; //points to the Material in the map in Model
 
+	double area;
+
 	std::vector<std::vector<double>> elemKMatrix; 
+	std::vector<std::vector<double>> elemMMatrix;
+	std::vector<std::vector<double>> elemCMatrix;
 	std::vector<double> elemFVector;
 
 	// vector to store gausspoints for later ex) postprocessing

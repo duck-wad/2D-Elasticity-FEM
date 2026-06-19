@@ -38,12 +38,14 @@ int main() {
 
 	filereader.ReadFile("INPUT.txt", model);
 
-	model.Discretize(); // construct the elemental K matrices
+	// assemble the system of equations
 	model.Assemble();
-	model.ApplyBC();
-	model.ApplyPointLoads();
+ 
 	model.Solve();
+
 	model.ProcessResults();
+	
+
 
 	FileWriter filewriter;
 

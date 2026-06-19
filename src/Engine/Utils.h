@@ -7,6 +7,7 @@
 #include <cmath>
 
 const double LOW_TOL = 1e-8;
+const double GRAVITY = 9.81;
 
 /* DEBUGGING FUNCTIONS */
 

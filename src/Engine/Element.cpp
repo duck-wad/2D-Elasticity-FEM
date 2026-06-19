@@ -3,6 +3,24 @@
 #include "Element.h"
 #include "Utils.h"
 
+Element::Element(int _id, const std::vector<int>& _nodes, const std::vector<std::vector<double>>& coords, const Material* mat, ElementType _type) : id(_id), nodes(_nodes), coordinates(coords), matptr(mat), type(_type) {
+
+	//compute the area of the element
+	ComputeArea();
+}
+
+void Element::ComputeArea() {
+	double temp = 0;
+	for (size_t i = 0; i < nodes.size(); i++) {
+		if(i == nodes.size()-1)
+			temp += (coordinates[i][0] * coordinates[0][1] - coordinates[i][1] * coordinates[0][0]);		
+		else
+			temp += (coordinates[i][0] * coordinates[i + 1][1] - coordinates[i][1] * coordinates[i + 1][0]);
+	}
+	area = std::abs(temp) / 2.0;
+
+}
+
 void Element::ConstructK() {
 	if (type == ElementType::Q4)
 		ConstructKQ4();
@@ -10,6 +28,28 @@ void Element::ConstructK() {
 		ConstructKT3();*/
 	else
 		throw std::invalid_argument("Element type not supported");
+}
+
+void Element::ConstructM() {
+	// using lumped mass matrix method (mass divided evenly amongst nodes)
+	// compute the mass of the element
+	double t = (*matptr).GetThickness();
+	double rho = (*matptr).GetDensity();
+	double mass = t * rho * area;
+
+	// initialize the mass matrix to an identiy matrix same size of K
+	elemMMatrix.assign(elemKMatrix.size(), std::vector<double>(elemKMatrix.size(), 0.0));
+	for (size_t i = 0; i < elemMMatrix.size(); i++) {
+		elemMMatrix[i][i] = 1.0;
+	}
+	elemMMatrix *= (mass / 4.0);
+
+}
+
+void Element::ConstructC(double alpha, double beta) {
+	elemCMatrix.assign(elemKMatrix.size(), std::vector<double>(elemKMatrix.size(), 0.0));
+	// using Rayleigh damping C = alpha * M + beta * K
+	elemCMatrix = (elemMMatrix * alpha) + (elemKMatrix * beta);
 }
 
 void Element::ConstructF(const std::vector<DistributedLoad>& loads) {

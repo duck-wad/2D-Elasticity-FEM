@@ -23,7 +23,22 @@ public:
 	double GetThickness() const { return thickness; }
 	void SetThickness(double thick) { thickness = thick; }
 	void SetDebug(int d) { debug = d; }
-	int IsDebug() { return debug; }
+	int IsDebug() const { return debug; }
+
+	// related to dynamic settings
+	void SetIsDynamic(int d) { isDynamic = d; }
+	int IsDynamic() const { return isDynamic; }
+	void SetTimeStepSize(double s) { timeStepSize = s; }
+	int GetTimeStepSize() const { return timeStepSize; }
+	void SetNumTimeSteps(int s) { numTimeStep = s; }
+	int GetNumTimeSteps() const { return numTimeStep; }
+
+	// damping settings for dynamic analysis
+	void SetDamping(int d, double alpha, double beta);
+	int IsDamped() const { return isDamped; }
+	double GetAlphaM() const { return alphaM; }
+	double GetBetaK() const { return betaK; }
+
 	std::map<std::string, Material>& GetMaterials() { return materials; }
 
 	int GetNumNodes() const { return numNodes; }
@@ -46,17 +61,15 @@ public:
 	void SetNumDistLoads(int num) { numDistLoads = num; }
 	std::map<int, std::vector<DistributedLoad>>& GetDistLoads() { return distLoads; }
 
-	// method to perform the initiate creation of Element stiffness matrices
-	void Discretize();
+	// for the dynamic point and distributed lodas
+	void SetNumDynamicPointLoads(int n) { numDynamicPointLoads = n; }
+	int GetNumDynamicPointLoads() const { return numDynamicPointLoads; }
+	std::map<int, std::vector<double>>& GetPointLoadHistory() { return pointLoadHistory; }
+	void SetNumDynamicDistLoads(int n) { numDynamicDistLoads = n; }
+	int GetNumDynamicDistLoads() const { return numDynamicDistLoads; }
+	std::map<int, std::vector<double>>& GetDistLoadHistory() { return distLoadHistory; }
 
-	// assemble Element stiffness matrices into the global K
 	void Assemble();
-
-	// apply BCs by my modifying K and F
-	void ApplyBC();
-
-	// these are applied directly to the nodes
-	void ApplyPointLoads();
 
 	void Solve();
 
@@ -73,6 +86,7 @@ private:
 	Assumption assumption;
 	int debug;
 	std::map<std::string, Material> materials;
+	int numTimeSteps;
 
 	int numNodes;
 	// store the nodes in map where node ID is key and vector(x,y) is value
@@ -98,10 +112,53 @@ private:
 
 	// global matrices
 	std::vector<std::vector<double>> globalK;
+	std::vector<std::vector<double>> globalM;
+	std::vector<std::vector<double>> globalC;
 	std::vector<double> globalF;
 	std::vector<double> globalD;
 
 	std::vector<double> globalDX;
 	std::vector<double> globalDY;
+
+	// dynamic settings
+	int isDynamic;
+	double timeStepSize;
+	int numTimeStep;
+
+	int numDynamicPointLoads;
+	// in dynamic point loads are scaled by a factor each time step
+	// store those scalers in the map below
+	// key is node ID (must make sure it is in pointLoads), vector is the scaler with size of numtimestep
+	std::map<int, std::vector<double>> pointLoadHistory;
+
+	// same process for the distributed load scalings. element id is key
+	int numDynamicDistLoads;
+	std::map<int, std::vector<double>> distLoadHistory;
+
+
+	int isDamped;
+	// rayleigh damping parameters
+	double alphaM;
+	double betaK;
+
+	/* PRIVATE METHODS */
+
+	// method to perform the initiate creation of Element stiffness matrices
+	void DiscretizeK();
+	void DiscretizeF();
+	void DiscretizeM();
+	void DiscretizeC();
+
+	// assemble Element stiffness matrices into the global K
+	void AssembleK();
+	void AssembleF();
+	void AssembleM(); 
+	void AssembleC();
+
+	// apply BCs by my modifying K and F
+	void ApplyBC();
+
+	// these are applied directly to the nodes
+	void ApplyPointLoads();
 };
 
