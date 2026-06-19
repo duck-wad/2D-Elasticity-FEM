@@ -98,6 +98,23 @@ void printVector(const std::vector<T>& vector) {
 /* MATRIX OPERATIONS */
 
 template<typename T>
+void makeSymmetric(std::vector < std::vector<T>>& mat) {
+
+	//  make sure square
+	if (mat.size() != mat[0].size()) {
+		throw std::invalid_argument(
+			"Matrix must be square");
+	}
+
+	for (size_t i = 0; i < mat.size(); i++) {
+		for (size_t j = 0; j < mat.size(); j++) {
+			mat[i][j] = 0.5 * (mat[i][j] + mat[j][i]);
+			mat[j][i] = mat[i][j];
+		}
+	}
+}
+
+template<typename T>
 std::vector<std::vector<T>> operator*(
 	const std::vector<std::vector<T>>& mat1,
 	const std::vector<std::vector<T>>& mat2)

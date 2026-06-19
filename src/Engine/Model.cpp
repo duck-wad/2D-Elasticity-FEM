@@ -70,7 +70,6 @@ void Model::Assemble() {
 	AssembleF();
 
 	ApplyPointLoads();
-	ApplyBC();
 }
 
 /* METHODS FOR CONSTRUCTING ELEMENTAL MATRICES */
@@ -235,28 +234,28 @@ void Model::ApplyPointLoads() {
 	}
 }
 
-void Model::ApplyBC() {
+void Model::ApplyBC(std::vector<std::vector<double>>& mat, std::vector<double>& vec) {
 
-	std::vector<int> constraintedDOFs;
-
-	for (auto const& pair : fixities) {
-		int dof = 2*(pair.first - 1);
-		if (pair.second[0])
-			constraintedDOFs.push_back(dof);
-		if (pair.second[1])
-			constraintedDOFs.push_back(dof + 1);
-	}
-
-	for (int i : constraintedDOFs) {
+	for (int i : constrainedDOFs) {
 		for (int j = 0; j < 2 * numNodes; j++) {
 			// zero out the row and column
-			globalK[i][j] = 0;
-			globalK[j][i] = 0;
+			mat[i][j] = 0;
+			mat[j][i] = 0;
 		}
 		// set the diagonal position to 1
-		globalK[i][i] = 1.0;
+		mat[i][i] = 1.0;
 		// zero out the force vector to fix the DOF
-		globalF[i] = 0.0;
+		vec[i] = 0.0;
+	}
+}
+
+void Model::FindConstrainedDOFs() {
+	for (auto const& pair : fixities) {
+		int dof = 2 * (pair.first - 1);
+		if (pair.second[0])
+			constrainedDOFs.push_back(dof);
+		if (pair.second[1])
+			constrainedDOFs.push_back(dof + 1);
 	}
 }
 
@@ -264,20 +263,33 @@ void Model::Solve() {
 
 	globalD.assign(2 * numNodes, 0.0);
 	
+	if (isDynamic)
+		SolveDynamic();
+	else
+		SolveStatic();
+}
+
+void Model::SolveStatic() {
+	globalD.assign(2 * numNodes, 0.0);
+
 	// algorithms like cholesky decomp require matrix to be symmetric
-	// there is some tolerance issues causing asymmetry
+	// there is some tolerance issues causing asymmetry not sure why
 	// so i will force symmetry by taking averages, this should be overall fine
 	// since the stiffness matrix should be symmetric anyway
-	for (size_t i = 0; i < globalK.size(); i++) {
-		for (size_t j = 0; j < globalK.size(); j++) {
-			globalK[i][j] = 0.5 * (globalK[i][j] + globalK[j][i]);
-			globalK[j][i] = globalK[i][j];
-		}
-	}
+	makeSymmetric(globalK);
 
-	solver.Solve(globalK, globalF, globalD);
+	// make an effectiveK matrix so avoid modifying the original K when applying BCs
+	std::vector<std::vector<double>> effectiveK(globalK);
+	std::vector<double> effectiveF(globalF);
 
-	// writeVectorToCSV(globalD, "./displacement.csv");
+	FindConstrainedDOFs();
+	ApplyBC(effectiveK, effectiveF);
+
+	solver.Solve(effectiveK, effectiveF, globalD);
+}
+
+void Model::SolveDynamic() {
+	return;
 }
 
 void Model::ProcessResults() {

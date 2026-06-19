@@ -104,14 +104,14 @@ void Element::ConstructKQ4() {
 		// 3x8 matrix
 		std::vector<std::vector<double>> BMatrix(3, std::vector<double>(8, 0.0));
 		// loop over the columns of the BMatrix and make the Bi matrices
-		for (int i = 0; i < BMatrix[0].size(); i += 2) {
-			size_t j = static_cast<size_t>(i / 2); //??
-			BMatrix[0][i] = GMatrix[0][0] * dN[0][j] + GMatrix[0][1] * dN[1][j];
-			BMatrix[0][i + 1] = 0.0;
-			BMatrix[1][i] = 0.0;
-			BMatrix[1][i + 1] = GMatrix[1][0] * dN[0][j] + GMatrix[1][1] * dN[1][j];
-			BMatrix[2][i] = GMatrix[1][0] * dN[0][j] + GMatrix[1][1] * dN[1][j];
-			BMatrix[2][i + 1] = GMatrix[0][0] * dN[0][j] + GMatrix[0][1] * dN[1][j];
+		for (int k = 0; k < BMatrix[0].size(); k += 2) {
+			size_t j = static_cast<size_t>(k / 2); //??
+			BMatrix[0][k] = GMatrix[0][0] * dN[0][j] + GMatrix[0][1] * dN[1][j];
+			BMatrix[0][k + 1] = 0.0;
+			BMatrix[1][k] = 0.0;
+			BMatrix[1][k + 1] = GMatrix[1][0] * dN[0][j] + GMatrix[1][1] * dN[1][j];
+			BMatrix[2][k] = GMatrix[1][0] * dN[0][j] + GMatrix[1][1] * dN[1][j];
+			BMatrix[2][k + 1] = GMatrix[0][0] * dN[0][j] + GMatrix[0][1] * dN[1][j];
 		}
 
 		std::vector<std::vector<double>> BMatrixT = transpose(BMatrix);

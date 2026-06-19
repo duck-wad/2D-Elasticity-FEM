@@ -100,6 +100,7 @@ private:
 	// store the BCs in map where node ID is key and vector(x, y) is the fixity
 	// 1 mean fixed, 0 mean free
 	std::map<int, std::vector<int>> fixities;
+	std::vector<int> constrainedDOFs;
 
 	int numPointLoads;
 	// key is node ID, value is vector for x and y load
@@ -156,9 +157,14 @@ private:
 	void AssembleC();
 
 	// apply BCs by my modifying K and F
-	void ApplyBC();
+	void ApplyBC(std::vector<std::vector<double>>& mat, std::vector<double>& vec);
+
+	void FindConstrainedDOFs();
 
 	// these are applied directly to the nodes
 	void ApplyPointLoads();
+
+	void SolveStatic();
+	void SolveDynamic();
 };
 
