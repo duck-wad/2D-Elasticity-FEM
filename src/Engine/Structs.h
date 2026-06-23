@@ -7,6 +7,7 @@ struct DistributedLoad {
 	std::vector<double> yvalues;
 	int edgeIndex;
 	std::vector<int> nodeIndex;
+	double scale; // optinal scale for the case of dynamic problems
 };
 
 struct GaussPoint {

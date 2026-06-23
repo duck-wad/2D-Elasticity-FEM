@@ -32,3 +32,8 @@ enum class Section {
 	POINT_LOADS,
 	DIST_LOADS
 };
+
+enum class DynamicMethod {
+	AVERAGE_ACCEL,
+	LINEAR_ACCEL
+};

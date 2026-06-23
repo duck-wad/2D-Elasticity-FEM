@@ -32,6 +32,8 @@ public:
 	int GetTimeStepSize() const { return timeStepSize; }
 	void SetNumTimeSteps(int s) { numTimeStep = s; }
 	int GetNumTimeSteps() const { return numTimeStep; }
+	void SetDynamicMethod(DynamicMethod d) { dynamicMethod = d; }
+	DynamicMethod GetDynamicMethod() const { return dynamicMethod; }
 
 	// damping settings for dynamic analysis
 	void SetDamping(int d, double alpha, double beta);
@@ -121,10 +123,17 @@ private:
 	std::vector<double> globalDX;
 	std::vector<double> globalDY;
 
+	// to store the dynamic results
+	std::vector<std::vector<double>> globalDispHistory;
+	std::vector<std::vector<double>> globalVeloHistory;
+	std::vector<std::vector<double>> globalAccelHistory;
+
 	// dynamic settings
 	int isDynamic;
 	double timeStepSize;
 	int numTimeStep;
+
+	DynamicMethod dynamicMethod;
 
 	int numDynamicPointLoads;
 	// in dynamic point loads are scaled by a factor each time step
@@ -136,7 +145,6 @@ private:
 	int numDynamicDistLoads;
 	std::map<int, std::vector<double>> distLoadHistory;
 
-
 	int isDamped;
 	// rayleigh damping parameters
 	double alphaM;
@@ -144,9 +152,9 @@ private:
 
 	/* PRIVATE METHODS */
 
-	// method to perform the initiate creation of Element stiffness matrices
+	// method to perform the creation of Element stiffness matrices
 	void DiscretizeK();
-	void DiscretizeF();
+	void DiscretizeF(int currentStep = -1);
 	void DiscretizeM();
 	void DiscretizeC();
 
@@ -157,7 +165,10 @@ private:
 	void AssembleC();
 
 	// apply BCs by my modifying K and F
-	void ApplyBC(std::vector<std::vector<double>>& mat, std::vector<double>& vec);
+	// split into separate functions for dynamic. in dynamic the stiffness matrix only need
+	// to have BC applied once, force should apply BC every time step
+	void ApplyBCMatrix(std::vector<std::vector<double>>& mat);
+	void ApplyBCVector(std::vector<double>& vec);
 
 	void FindConstrainedDOFs();
 

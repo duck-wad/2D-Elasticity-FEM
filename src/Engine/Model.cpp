@@ -84,11 +84,13 @@ void Model::DiscretizeK() {
 	}
 }
 
-void Model::DiscretizeF() {
+void Model::DiscretizeF(int currentStep) {
 	for (auto& pair : elements) {
 		int id = pair.first;
 		Element& element = pair.second;
 		if (distLoads.count(id)) {
+
+
 			element.ConstructF(distLoads[id]);
 		}
 	}
@@ -234,7 +236,7 @@ void Model::ApplyPointLoads() {
 	}
 }
 
-void Model::ApplyBC(std::vector<std::vector<double>>& mat, std::vector<double>& vec) {
+void Model::ApplyBCMatrix(std::vector<std::vector<double>>& mat) {
 
 	for (int i : constrainedDOFs) {
 		for (int j = 0; j < 2 * numNodes; j++) {
@@ -244,6 +246,12 @@ void Model::ApplyBC(std::vector<std::vector<double>>& mat, std::vector<double>& 
 		}
 		// set the diagonal position to 1
 		mat[i][i] = 1.0;
+
+	}
+}
+
+void Model::ApplyBCVector(std::vector<double>& vec) {
+	for (int i : constrainedDOFs) {
 		// zero out the force vector to fix the DOF
 		vec[i] = 0.0;
 	}
@@ -283,13 +291,51 @@ void Model::SolveStatic() {
 	std::vector<double> effectiveF(globalF);
 
 	FindConstrainedDOFs();
-	ApplyBC(effectiveK, effectiveF);
+	ApplyBCMatrix(effectiveK);
+	ApplyBCVector(effectiveF);
 
 	solver.Solve(effectiveK, effectiveF, globalD);
 }
 
 void Model::SolveDynamic() {
-	return;
+
+	/* CREATE THE EFFECTIVE STIFFNESS MATRIX */
+
+	double coefM = 1.0;
+	double coefC = 1.0;
+
+	if (dynamicMethod == DynamicMethod::AVERAGE_ACCEL) {
+		coefM = 4.0 / std::pow(timeStepSize, 2);
+		coefC = 2.0 / timeStepSize;
+	}
+	else if (dynamicMethod == DynamicMethod::LINEAR_ACCEL) {
+		coefM = 6.0 / std::pow(timeStepSize, 2);
+		coefC = 3 / timeStepSize;
+	}
+
+	// this matrix does not change over time and can be initialized and BC apply once
+	std::vector<std::vector<double>> effectiveK = (globalM * coefM) + (globalC * coefC) + globalK;
+	ApplyBCMatrix(effectiveK);
+
+
+	/* INITIALIZE TIME HISTORY CONTAINERS */
+	globalDispHistory.assign(numTimeStep, std::vector<double>(2 * numNodes, 0.0));
+	globalVeloHistory.assign(numTimeStep, std::vector<double>(2 * numNodes, 0.0));
+	globalAccelHistory.assign(numTimeStep, std::vector<double>(2 * numNodes, 0.0));
+
+	// for now assumne initial displacement and velocity are zero
+	// want separate vectors for these in case later i want to have non-zero values
+	std::vector<double> initialDisp(2 * numNodes, 0.0); 
+	std::vector<double> initialVelo(2 * numNodes, 0.0);
+
+	globalDispHistory[0] = initialDisp;
+	globalVeloHistory[0] = initialVelo;
+
+
+	/* FIRST TIME STEP */
+
+	// initialize the force vector for the first time step using the scalers at first index
+
 }
 
 void Model::ProcessResults() {

@@ -118,10 +118,18 @@ void FileReader::ReadGeneral(const std::string& line, Model& model) {
 		int isDynamic;
 		double stepSize;
 		int numStep;
-		ss >> isDynamic >> junk >> stepSize >> junk >> numStep;
+		std::string method;
+		ss >> isDynamic >> junk >> stepSize >> junk >> numStep >> junk >> method;
 		model.SetIsDynamic(isDynamic);
 		model.SetTimeStepSize(stepSize);
 		model.SetNumTimeSteps(numStep);
+		
+		if (method == "average_acceleration")
+			model.SetDynamicMethod(DynamicMethod::AVERAGE_ACCEL);
+		else if (method == "linear_acceleration")
+			model.SetDynamicMethod(DynamicMethod::LINEAR_ACCEL);
+		else
+			throw std::invalid_argument("Not a valid dynamic method");
 	}
 	else if (junk == "damping:") {
 		int isDamped;
@@ -407,6 +415,7 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std
 					load.xvalues = xvalues;
 					load.yvalues = yvalues;
 					load.nodeIndex = nodes;
+					load.scale = 1.0;
 
 					model.GetDistLoads()[id].push_back(load);
 
@@ -462,6 +471,7 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std
 
 		for (const auto& [key, value] : model.GetDistLoads()) {
 			if (model.GetDistLoadHistory().find(key) == model.GetDistLoadHistory().end()) {
+				// for dist loads that are not changing with time, set their history to constant 1
 				model.GetDistLoadHistory()[key] = std::vector<double>(model.GetNumTimeSteps(), 1.0);
 			}
 		}
