@@ -84,15 +84,19 @@ void Model::DiscretizeK() {
 	}
 }
 
-void Model::DiscretizeF(int currentStep) {
-	for (auto& pair : elements) {
-		int id = pair.first;
-		Element& element = pair.second;
-		if (distLoads.count(id)) {
+void Model::DiscretizeF() {
+	// store the distributed loads within each element
+	// clear each elements loads before adding them in case this is called twice
+	for (auto& [id, el] : elements) {
+		el.ClearDistributedLoads();
+	}
+	for (const auto& [id, load] : distLoads){
+		Element& el = elements.at(load.element);
+		el.AddDistributedLoad(load);
+	}
 
-
-			element.ConstructF(distLoads[id]);
-		}
+	for (auto& [id, el] : elements){
+		el.ConstructF();
 	}
 }
 
@@ -227,9 +231,9 @@ void Model::AssembleF() {
 void Model::ApplyPointLoads() {
 
 	for (auto const& pair : pointLoads) {
-		int dof = 2 * (pair.first - 1);
-		double xload = pair.second[0];
-		double yload = pair.second[1];
+		int dof = 2 * (pair.second.node - 1);
+		double xload = pair.second.xvalue;
+		double yload = pair.second.yvalue;
 
 		globalF[dof] += xload;
 		globalF[dof + 1] += yload;
@@ -258,6 +262,7 @@ void Model::ApplyBCVector(std::vector<double>& vec) {
 }
 
 void Model::FindConstrainedDOFs() {
+	constrainedDOFs.clear();
 	for (auto const& pair : fixities) {
 		int dof = 2 * (pair.first - 1);
 		if (pair.second[0])
@@ -278,19 +283,19 @@ void Model::Solve() {
 }
 
 void Model::SolveStatic() {
-	globalD.assign(2 * numNodes, 0.0);
-
-	// algorithms like cholesky decomp require matrix to be symmetric
-	// there is some tolerance issues causing asymmetry not sure why
-	// so i will force symmetry by taking averages, this should be overall fine
-	// since the stiffness matrix should be symmetric anyway
-	makeSymmetric(globalK);
 
 	// make an effectiveK matrix so avoid modifying the original K when applying BCs
 	std::vector<std::vector<double>> effectiveK(globalK);
 	std::vector<double> effectiveF(globalF);
 
 	FindConstrainedDOFs();
+
+	// algorithms like cholesky decomp require matrix to be symmetric
+	// there is some tolerance issues causing asymmetry not sure why
+	// so i will force symmetry by taking averages, this should be overall fine
+	// since the stiffness matrix should be symmetric anyway
+	makeSymmetric(effectiveK);
+
 	ApplyBCMatrix(effectiveK);
 	ApplyBCVector(effectiveF);
 
@@ -315,6 +320,8 @@ void Model::SolveDynamic() {
 
 	// this matrix does not change over time and can be initialized and BC apply once
 	std::vector<std::vector<double>> effectiveK = (globalM * coefM) + (globalC * coefC) + globalK;
+	// apply symmetry
+	makeSymmetric(effectiveK);
 	ApplyBCMatrix(effectiveK);
 
 
@@ -339,6 +346,10 @@ void Model::SolveDynamic() {
 }
 
 void Model::ProcessResults() {
+
+	// clear containers
+	globalDX.clear();
+	globalDY.clear();
 
 	// convert global displacements to separate x and y vectors
 	for (int i = 0; i < numNodes * 2; i++) {

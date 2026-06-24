@@ -43,7 +43,7 @@ void Material::ConstructDMatrix(Assumption assumption) {
 			{nu, 1.0, 0.0},
 			{0.0, 0.0, (1.0 - nu) / 2.0}
 		};
-		D *= coef;		
+		D *= coef;
 	}
 	else if (assumption == Assumption::PLANE_STRAIN) {
 		double coef = E / ((1.0 + nu) * (1.0 - 2.0 * nu));
@@ -54,4 +54,6 @@ void Material::ConstructDMatrix(Assumption assumption) {
 		};
 		D *= coef;
 	}
+	else
+		throw std::invalid_argument("Not a valid assumption");
 }

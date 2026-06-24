@@ -16,20 +16,24 @@ public:
 	void ConstructK();
 	void ConstructM();
 	void ConstructC(double alpha, double beta);
-	void ConstructF(const std::vector<DistributedLoad>& loads);
+	void ConstructF();
 
 	const std::vector<std::vector<double>>& GetK() const { return elemKMatrix; }
 	const std::vector<std::vector<double>>& GetM() const { return elemMMatrix; }
 	const std::vector<std::vector<double>>& GetC() const { return elemCMatrix; }
 	const std::vector<double>& GetF() const { return elemFVector; }
 
+	void AddDistributedLoad(const DistributedLoad& load);
+	void ClearDistributedLoads() { distLoads.clear(); }
+
 private:
+
 
 	void ComputeArea();
 
 	// helper functions for constructing K and F
 	void ConstructKQ4();
-	void ConstructFQ4(const std::vector<DistributedLoad>& loads);
+	void ConstructFQ4();
 	// void ConstructKT3();
 	// void ConstructFT3();
 
@@ -52,5 +56,8 @@ private:
 
 	// vector to store gausspoints for later ex) postprocessing
 	std::vector<GaussPoint> gaussPoints;
+
+	// store distributed loads internally
+	std::vector<DistributedLoad> distLoads;
 };
 

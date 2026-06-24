@@ -20,20 +20,20 @@ public:
 	Solver& GetSolver() { return solver; }
 	Assumption GetAssumption() const { return assumption; }
 	void SetAssumption(std::string assump);
-	double GetThickness() const { return thickness; }
+	const double GetThickness() const { return thickness; }
 	void SetThickness(double thick) { thickness = thick; }
 	void SetDebug(int d) { debug = d; }
 	int IsDebug() const { return debug; }
 
 	// related to dynamic settings
 	void SetIsDynamic(int d) { isDynamic = d; }
-	int IsDynamic() const { return isDynamic; }
+	const int IsDynamic() const { return isDynamic; }
 	void SetTimeStepSize(double s) { timeStepSize = s; }
-	int GetTimeStepSize() const { return timeStepSize; }
+	const int GetTimeStepSize() const { return timeStepSize; }
 	void SetNumTimeSteps(int s) { numTimeStep = s; }
-	int GetNumTimeSteps() const { return numTimeStep; }
+	const int GetNumTimeSteps() const { return numTimeStep; }
 	void SetDynamicMethod(DynamicMethod d) { dynamicMethod = d; }
-	DynamicMethod GetDynamicMethod() const { return dynamicMethod; }
+	const DynamicMethod GetDynamicMethod() const { return dynamicMethod; }
 
 	// damping settings for dynamic analysis
 	void SetDamping(int d, double alpha, double beta);
@@ -43,11 +43,11 @@ public:
 
 	std::map<std::string, Material>& GetMaterials() { return materials; }
 
-	int GetNumNodes() const { return numNodes; }
+	const int GetNumNodes() const { return numNodes; }
 	void SetNumNodes(int num) { numNodes = num; }
 	std::map<int, std::vector<double>>& GetNodes() { return nodes; }
 
-	ElementType GetElemType() const { return elemType; }
+	const ElementType GetElemType() const { return elemType; }
 	void SetElemType(std::string type);
 	int GetNumEls() const { return numEls; }
 	void SetNumEls(int num) { numEls = num; }
@@ -58,17 +58,17 @@ public:
 	std::map<int, std::vector<int>>& GetFixities(){ return fixities; }
 
 	void SetNumPointLoads(int num) { numPointLoads = num; }
-	std::map<int, std::vector<double>>& GetPointLoads() { return pointLoads; }
+	std::map<int, PointLoad>& GetPointLoads() { return pointLoads; }
 
 	void SetNumDistLoads(int num) { numDistLoads = num; }
-	std::map<int, std::vector<DistributedLoad>>& GetDistLoads() { return distLoads; }
+	std::map<int, DistributedLoad>& GetDistLoads() { return distLoads; }
 
 	// for the dynamic point and distributed lodas
 	void SetNumDynamicPointLoads(int n) { numDynamicPointLoads = n; }
-	int GetNumDynamicPointLoads() const { return numDynamicPointLoads; }
+	const int GetNumDynamicPointLoads() const { return numDynamicPointLoads; }
 	std::map<int, std::vector<double>>& GetPointLoadHistory() { return pointLoadHistory; }
 	void SetNumDynamicDistLoads(int n) { numDynamicDistLoads = n; }
-	int GetNumDynamicDistLoads() const { return numDynamicDistLoads; }
+	const int GetNumDynamicDistLoads() const { return numDynamicDistLoads; }
 	std::map<int, std::vector<double>>& GetDistLoadHistory() { return distLoadHistory; }
 
 	void Assemble();
@@ -88,7 +88,6 @@ private:
 	Assumption assumption;
 	int debug;
 	std::map<std::string, Material> materials;
-	int numTimeSteps;
 
 	int numNodes;
 	// store the nodes in map where node ID is key and vector(x,y) is value
@@ -105,13 +104,12 @@ private:
 	std::vector<int> constrainedDOFs;
 
 	int numPointLoads;
-	// key is node ID, value is vector for x and y load
-	std::map<int, std::vector<double>> pointLoads;
+	// key is load ID
+	std::map<int, PointLoad> pointLoads;
 
 	int numDistLoads;
-	// dist loads store in map where element ID is key which maps to a distributed load struct
-	// vector of distributed loads allows for multiple loads per element
-	std::map<int, std::vector<DistributedLoad>> distLoads;
+	// dist loads store in map where load ID is key which maps to a distributed load struct
+	std::map<int, DistributedLoad> distLoads;
 
 	// global matrices
 	std::vector<std::vector<double>> globalK;
@@ -154,7 +152,8 @@ private:
 
 	// method to perform the creation of Element stiffness matrices
 	void DiscretizeK();
-	void DiscretizeF(int currentStep = -1);
+	//void DiscretizeF(int currentStep = -1);
+	void DiscretizeF();
 	void DiscretizeM();
 	void DiscretizeC();
 

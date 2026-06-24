@@ -405,14 +405,29 @@ double determinant2x2(const std::vector<std::vector<T>>& matrix) {
 	return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
 }
 
+template<typename T>
+bool isSingular(const std::vector<std::vector<T>>& matrix) {
+
+	for (size_t i = 0; i < matrix.size(); i++) {
+		if (std::abs(matrix[i][i]) < LOW_TOL) {
+			return true;
+		}
+	}
+	return false;
+}
+
 //invert 2x2 matrix and return new matrix
 template<typename T>
-std::vector<std::vector<T>> inverse2x2(std::vector<std::vector<T>>& matrix) {
+std::vector<std::vector<T>> inverse2x2(const std::vector<std::vector<T>>& matrix) {
 	assert(matrix.size() == 2 && matrix[0].size() == 2 && "Matrix must be 2x2");
+
 
 	std::vector<std::vector<T>> output(2, std::vector<T>(2));
 
 	double det = determinant2x2(matrix);
+
+	if (std::abs(det) < LOW_TOL)
+		throw std::invalid_argument("Cannot invert a matrix with zero determinant");
 
 	output[0][0] = matrix[1][1] / det;
 	output[1][1] = matrix[0][0] / det;
@@ -436,17 +451,6 @@ std::vector<std::vector<T>> outerProduct(const std::vector<T>& vec1, const std::
 	}
 
 	return matrix;
-}
-
-template<typename T>
-bool isSingular(const std::vector<std::vector<T>>& matrix) {
-
-	for (size_t i = 0; i < matrix.size(); i++) {
-		if (std::abs(matrix[i][i]) < LOW_TOL) {
-			return true;
-		}
-	}
-	return false;
 }
 
 /* END OF MATRIX OPERATIONS */

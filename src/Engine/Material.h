@@ -15,7 +15,7 @@ public:
 	void SetThickness(double thickness);
 
 	void ConstructDMatrix(Assumption assumption);
-	std::vector<std::vector<double>> GetDMatrix() const { return D; }
+	const std::vector<std::vector<double>>& GetDMatrix() const { return D; }
 	double GetThickness() const { return t; }
 	double GetDensity() const { return density; }
 

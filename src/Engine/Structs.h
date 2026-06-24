@@ -2,7 +2,14 @@
 
 #include <vector>
 
+struct PointLoad {
+	int node;
+	double xvalue;
+	double yvalue;
+};
+
 struct DistributedLoad {
+	int element;
 	std::vector<double> xvalues;
 	std::vector<double> yvalues;
 	int edgeIndex;

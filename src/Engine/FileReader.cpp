@@ -256,6 +256,8 @@ void FileReader::ReadElements(const std::string& line, Model& model) {
 
 		return;
 	}
+	else
+		throw std::invalid_argument("Not a valid header");
 
 }
 
@@ -268,7 +270,7 @@ void FileReader::ReadFixities(const std::string& line, Model& model) {
 		int num;
 		ss >> num;
 		model.SetNumFixities(num);
-		
+
 		return;
 	}
 	else if (junk == "node:") {
@@ -286,6 +288,8 @@ void FileReader::ReadFixities(const std::string& line, Model& model) {
 
 		return;
 	}
+	else
+		throw std::invalid_argument("Not a valid header");
 }
 
 void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifstream& infile) {
@@ -300,13 +304,19 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifst
 		model.SetNumPointLoads(num);
 		return;
 	}
-	else if (junk == "node:") {
+	else if (junk == "id:") {
 		int id;
+		int node;
 		std::vector<double> values(2);
-		ss >> id >> junk >> values[0] >> junk >> values[1];
+		ss >> id >> junk >> node >> junk >> values[0] >> junk >> values[1];
 
-		if (model.GetNodes().count(id)) {
-			model.GetPointLoads().emplace(id, values);
+		PointLoad load;
+		load.node = node;
+		load.xvalue = values[0];
+		load.yvalue = values[1];
+
+		if (model.GetNodes().count(node)) {
+			model.GetPointLoads().emplace(id, load);
 		}
 		else
 			throw std::invalid_argument("Load not applied to valid node");
@@ -345,7 +355,7 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifst
 				// check if this node exists in the point loads
 				if (!model.GetPointLoads().count(id))
 					throw std::invalid_argument("Dynamic load is not applied to valid node");
-				else 
+				else
 					model.GetPointLoadHistory()[id].push_back(scale);
 			}
 		}
@@ -354,7 +364,7 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifst
 			throw std::invalid_argument("Time history points do not match the number of time steps");
 		if (model.GetNumDynamicPointLoads() != model.GetPointLoadHistory().size())
 			throw std::invalid_argument("Number of dynamic loads is invalid");
-		
+
 		// if there is a case where there are some static point loads included with the dynamic point loads
 		// to simplify things later, include scalers for those static point loads but make them all 1.0
 		// i hope this is not bad idea
@@ -364,6 +374,8 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifst
 			}
 		}
 	}
+	else
+		throw std::invalid_argument("Not a valid header");
 }
 
 void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std::ifstream& infile) {
@@ -379,18 +391,19 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std
 
 		return;
 	}
-	else if (junk == "element:") {
-		int id;
+	else if (junk == "id:") {
+		int loadid;
+		int elid;
 		std::vector<int> nodes(2);
 		std::vector<double> xvalues(2);
 		std::vector<double> yvalues(2);
 
-		ss >> id >> junk >> nodes[0] >> junk >> nodes[1] >> junk >> xvalues[0] >> junk >> xvalues[1] >> junk >> yvalues[0] >> junk >> yvalues[1];
+		ss >> loadid >> junk >> elid >> junk >> nodes[0] >> junk >> nodes[1] >> junk >> xvalues[0] >> junk >> xvalues[1] >> junk >> yvalues[0] >> junk >> yvalues[1];
 
-		if (model.GetElements().count(id)) {
+		if (model.GetElements().count(elid)) {
 			// must check if the edge the load is applied on is an exterior edge
 			// i.e) the nodes must be adjacent to each other
-			std::vector<int> elemNodes = model.GetElements().at(id).GetNodes();
+			std::vector<int> elemNodes = model.GetElements().at(elid).GetNodes();
 			for (size_t i = 0; i < elemNodes.size(); i++) {
 
 				int node1 = elemNodes[i];
@@ -411,13 +424,14 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std
 					}
 
 					DistributedLoad load;
+					load.element = elid;
 					load.edgeIndex = static_cast<int>(i);
 					load.xvalues = xvalues;
 					load.yvalues = yvalues;
 					load.nodeIndex = nodes;
 					load.scale = 1.0;
 
-					model.GetDistLoads()[id].push_back(load);
+					model.GetDistLoads().emplace(loadid, load);
 
 					return;
 				}
@@ -476,4 +490,6 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std
 			}
 		}
 	}
+	else
+		throw std::invalid_argument("Not a valid header");
 }

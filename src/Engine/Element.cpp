@@ -9,6 +9,10 @@ Element::Element(int _id, const std::vector<int>& _nodes, const std::vector<std:
 	ComputeArea();
 }
 
+void Element::AddDistributedLoad(const DistributedLoad& load){
+	distLoads.push_back(load);
+}
+
 void Element::ComputeArea() {
 	double temp = 0;
 	for (size_t i = 0; i < nodes.size(); i++) {
@@ -52,9 +56,9 @@ void Element::ConstructC(double alpha, double beta) {
 	elemCMatrix = (elemMMatrix * alpha) + (elemKMatrix * beta);
 }
 
-void Element::ConstructF(const std::vector<DistributedLoad>& loads) {
+void Element::ConstructF() {
 	if (type == ElementType::Q4)
-		ConstructFQ4(loads);
+		ConstructFQ4();
 	/*else if (type == ElementType::T3)
 		ConstructFT3();*/
 	else
@@ -83,7 +87,7 @@ void Element::ConstructKQ4() {
 
 	elemKMatrix.assign(8, std::vector<double>(8, 0.0));
 	elemFVector.assign(8, 0.0);
-	std::vector<std::vector<double>> DMatrix = (*matptr).GetDMatrix();
+	const auto& DMatrix = (*matptr).GetDMatrix();
 
 	// for each gausspoint instantiate a GaussPoint struct
 	for (size_t i = 0; i < gaussPoints.size(); i++) {
@@ -126,13 +130,13 @@ void Element::ConstructKQ4() {
 	//writeMatrixToCSV(elemKMatrix, "./temp.csv");
 }
 
-void Element::ConstructFQ4(const std::vector<DistributedLoad>& loads) {
+void Element::ConstructFQ4() {
 	elemFVector.assign(8, 0.0);
 
 	// loop over the vector of loads applied to the element
-	for (size_t i = 0; i < loads.size(); i++) {
+	for (size_t i = 0; i < distLoads.size(); i++) {
 
-		const DistributedLoad& load = loads[i];
+		const DistributedLoad& load = distLoads[i];
 		int edge = load.edgeIndex;
 
 		// based on which edge is loaded, the GP coordinates will be different
