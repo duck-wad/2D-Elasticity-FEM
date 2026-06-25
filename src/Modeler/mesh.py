@@ -96,12 +96,20 @@ def _lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
-def distributed_load_file_lines(
+@dataclass(frozen=True)
+class DistributedLoadSegment:
+    load_id: int
+    edge: str
+    file_line: str
+
+
+def distributed_load_segments(
     mesh: RectangleMesh,
     edge_traction_knm: Dict[str, Tuple[float, float, float, float]],
     *,
     fmt_float: Callable[[float], str],
-) -> List[str]:
+    start_load_id: int = 1,
+) -> List[DistributedLoadSegment]:
     """
     Build INPUT.txt lines for the distributed loads section (no header / numloads).
 
@@ -111,17 +119,35 @@ def distributed_load_file_lines(
 
     Values are scaled by 1000 to N/m before writing (same convention as point kN → N).
     Engine format:
-      element: <id> node1: <a> node2: <b> tx1: .. tx2: .. ty1: .. ty2: ..
+      id: <loadid> elid: <eid> node1: <a> node2: <b> tx1: .. tx2: .. ty1: .. ty2: ..
     """
     nx, ny = mesh.nx, mesh.ny
     scale = 1000.0
-    lines: List[str] = []
+    segments: List[DistributedLoadSegment] = []
+    load_id = start_load_id
 
     def fmt4(tx1: float, tx2: float, ty1: float, ty2: float) -> str:
         return (
             f" tx1: {fmt_float(tx1)} tx2: {fmt_float(tx2)} "
             f"ty1: {fmt_float(ty1)} ty2: {fmt_float(ty2)}"
         )
+
+    def append_line(
+        edge: str, eidx: int, n1: int, n2: int,
+        tx1: float, tx2: float, ty1: float, ty2: float,
+    ) -> None:
+        nonlocal load_id
+        segments.append(
+            DistributedLoadSegment(
+                load_id=load_id,
+                edge=edge,
+                file_line=(
+                    f" id: {load_id} elid: {eidx + 1} node1: {n1} node2: {n2}"
+                    + fmt4(tx1, tx2, ty1, ty2)
+                ),
+            )
+        )
+        load_id += 1
 
     edge_order = ("bottom", "top", "left", "right")
     for e in edge_order:
@@ -139,9 +165,7 @@ def distributed_load_file_lines(
                 s0, s1 = i / nx, (i + 1) / nx
                 v1x, v2x = _lerp(txs_n, txe_n, s0), _lerp(txs_n, txe_n, s1)
                 v1y, v2y = _lerp(tys_n, tye_n, s0), _lerp(tys_n, tye_n, s1)
-                lines.append(
-                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(v1x, v2x, v1y, v2y)
-                )
+                append_line(e, eidx, n1, n2, v1x, v2x, v1y, v2y)
         elif e == "top":
             for i in range(nx):
                 eidx = (ny - 1) * nx + i
@@ -150,9 +174,7 @@ def distributed_load_file_lines(
                 s0, s1 = i / nx, (i + 1) / nx
                 vx_r, vx_l = _lerp(txs_n, txe_n, s1), _lerp(txs_n, txe_n, s0)
                 vy_r, vy_l = _lerp(tys_n, tye_n, s1), _lerp(tys_n, tye_n, s0)
-                lines.append(
-                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(vx_r, vx_l, vy_r, vy_l)
-                )
+                append_line(e, eidx, n1, n2, vx_r, vx_l, vy_r, vy_l)
         elif e == "left":
             for j in range(ny):
                 eidx = j * nx
@@ -161,9 +183,7 @@ def distributed_load_file_lines(
                 s0, s1 = j / ny, (j + 1) / ny
                 vx_t, vx_b = _lerp(txs_n, txe_n, s1), _lerp(txs_n, txe_n, s0)
                 vy_t, vy_b = _lerp(tys_n, tye_n, s1), _lerp(tys_n, tye_n, s0)
-                lines.append(
-                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(vx_t, vx_b, vy_t, vy_b)
-                )
+                append_line(e, eidx, n1, n2, vx_t, vx_b, vy_t, vy_b)
         else:  # right
             for j in range(ny):
                 eidx = j * nx + (nx - 1)
@@ -172,8 +192,25 @@ def distributed_load_file_lines(
                 s0, s1 = j / ny, (j + 1) / ny
                 v1x, v2x = _lerp(txs_n, txe_n, s0), _lerp(txs_n, txe_n, s1)
                 v1y, v2y = _lerp(tys_n, tye_n, s0), _lerp(tys_n, tye_n, s1)
-                lines.append(
-                    f" element: {eidx + 1} node1: {n1} node2: {n2}" + fmt4(v1x, v2x, v1y, v2y)
-                )
+                append_line(e, eidx, n1, n2, v1x, v2x, v1y, v2y)
 
-    return lines
+    return segments
+
+
+def distributed_load_file_lines(
+    mesh: RectangleMesh,
+    edge_traction_knm: Dict[str, Tuple[float, float, float, float]],
+    *,
+    fmt_float: Callable[[float], str],
+    start_load_id: int = 1,
+) -> List[str]:
+    """Backward-compatible wrapper returning INPUT lines only."""
+    return [
+        seg.file_line
+        for seg in distributed_load_segments(
+            mesh,
+            edge_traction_knm,
+            fmt_float=fmt_float,
+            start_load_id=start_load_id,
+        )
+    ]

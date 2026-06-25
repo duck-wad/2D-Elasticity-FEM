@@ -7,6 +7,7 @@ Or:            cd Modeler && python main.py
 
 from __future__ import annotations
 
+import math
 import subprocess
 import sys
 from functools import partial
@@ -14,9 +15,10 @@ from pathlib import Path
 from typing import Literal, cast
 
 from PySide6.QtCore import QPoint, QPointF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QAbstractSpinBox,
     QCheckBox,
     QComboBox,
@@ -24,17 +26,22 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QGraphicsEllipseItem,
+    QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -42,18 +49,119 @@ from PySide6.QtWidgets import (
 )
 
 from engine_results import EngineResults
-from export_input import ExportModel, Material, PointLoad, _fmt_float, export_input_text
+from export_input import (
+    DistributedEdgeMeta,
+    ExportModel,
+    Material,
+    PointLoad,
+    _fmt_float,
+    export_input_text,
+)
 from mesh import RectangleMesh, nodes_on_edge, structured_rectangle_quad
 from run_engine import run_engine
 
 
-def _spin_no_buttons(box: QDoubleSpinBox | QSpinBox) -> None:
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        event.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        event.ignore()
+
+
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        event.ignore()
+
+
+def _spin_no_buttons(box: NoWheelDoubleSpinBox | NoWheelSpinBox) -> None:
     box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
 
 def _scene_xy(nx: float, ny: float) -> QPointF:
     """Map model (x,y) with y up to scene coordinates (y negated for Qt)."""
     return QPointF(nx, -ny)
+
+
+# Outward from the rectangle in scene coordinates (y is negated).
+_EDGE_OUTWARD_SCENE: dict[str, QPointF] = {
+    "bottom": QPointF(0.0, 1.0),
+    "top": QPointF(0.0, -1.0),
+    "left": QPointF(-1.0, 0.0),
+    "right": QPointF(1.0, 0.0),
+}
+_EDGE_TANGENT_SCENE: dict[str, QPointF] = {
+    "bottom": QPointF(1.0, 0.0),
+    "top": QPointF(1.0, 0.0),
+    "left": QPointF(0.0, -1.0),
+    "right": QPointF(0.0, -1.0),
+}
+
+
+def _boundary_edges_for_node(mesh: RectangleMesh, index: int) -> list[str]:
+    x, y = mesh.nodes[index]
+    ox, oy = mesh.origin
+    tol = min(mesh.width / mesh.nx, mesh.height / mesh.ny) * 0.15
+    edges: list[str] = []
+    if x - ox <= tol:
+        edges.append("left")
+    if ox + mesh.width - x <= tol:
+        edges.append("right")
+    if y - oy <= tol:
+        edges.append("bottom")
+    if oy + mesh.height - y <= tol:
+        edges.append("top")
+    return edges
+
+
+def _pick_symbol_edge(
+    edges: list[str],
+    *,
+    fix_x: bool,
+    fix_y: bool,
+    active_edges: set[str] | None = None,
+) -> str | None:
+    """Pick the boundary edge whose UI fixity applies to this node."""
+    if not edges:
+        return None
+
+    if active_edges:
+        candidates = [e for e in edges if e in active_edges]
+    else:
+        candidates = list(edges)
+    if not candidates:
+        candidates = list(edges)
+    if len(candidates) == 1:
+        return candidates[0]
+
+    vertical = [e for e in candidates if e in ("left", "right")]
+    horizontal = [e for e in candidates if e in ("bottom", "top")]
+
+    if fix_x and fix_y:
+        for e in ("bottom", "top"):
+            if e in horizontal:
+                return e
+        for e in ("left", "right"):
+            if e in vertical:
+                return e
+        return candidates[0]
+    elif fix_y and not fix_x:
+        for e in ("bottom", "top"):
+            if e in horizontal:
+                return e
+        for e in ("left", "right"):
+            if e in vertical:
+                return e
+    elif fix_x and not fix_y:
+        for e in ("left", "right"):
+            if e in vertical:
+                return e
+        for e in ("bottom", "top"):
+            if e in horizontal:
+                return e
+    return candidates[0]
 
 
 class MeshGraphicsView(QGraphicsView):
@@ -137,6 +245,9 @@ class MainWindow(QMainWindow):
         self._results: EngineResults | None = None
         self._deform_base_scale: float = 1.0
         self._dist_edge_knm: dict[str, tuple[float, float, float, float]] = {}
+        self._dist_meta: dict[str, dict[str, float | bool | str]] = {}
+        # 1-based node id -> dynamic load metadata for export
+        self._load_meta: dict[int, dict[str, float | bool | str]] = {}
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -145,25 +256,31 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         root.addWidget(splitter)
 
-        # —— Left: controls ——
+        # —— Left: scrollable controls ——
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll_host = QWidget()
         left = QVBoxLayout(scroll_host)
         left.setAlignment(Qt.AlignTop)
+        left.setContentsMargins(2, 2, 6, 2)
+        scroll.setWidget(scroll_host)
 
         gb_mesh = QGroupBox("Rectangle & mesh")
         fm = QFormLayout(gb_mesh)
-        self.sp_width = QDoubleSpinBox()
+        self.sp_width = NoWheelDoubleSpinBox()
         self.sp_width.setRange(1e-9, 1e9)
         self.sp_width.setDecimals(4)
         self.sp_width.setValue(1.0)
-        self.sp_height = QDoubleSpinBox()
+        self.sp_height = NoWheelDoubleSpinBox()
         self.sp_height.setRange(1e-9, 1e9)
         self.sp_height.setDecimals(4)
         self.sp_height.setValue(1.0)
-        self.sb_nx = QSpinBox()
+        self.sb_nx = NoWheelSpinBox()
         self.sb_nx.setRange(1, 500)
         self.sb_nx.setValue(10)
-        self.sb_ny = QSpinBox()
+        self.sb_ny = NoWheelSpinBox()
         self.sb_ny.setRange(1, 500)
         self.sb_ny.setValue(10)
         for sp in (
@@ -184,7 +301,7 @@ class MainWindow(QMainWindow):
 
         gb_gen = QGroupBox("General")
         fg = QFormLayout(gb_gen)
-        self.cb_solver = QComboBox()
+        self.cb_solver = NoWheelComboBox()
         self.cb_solver.addItem("Cholesky Decomposition", "CHOLESKY_DECOMP")
         self.cb_solver.addItem("Conjugate Gradient", "CONJUGATE_GRADIENT")
         self.cb_solver.currentIndexChanged.connect(self._on_solver_changed)
@@ -192,11 +309,11 @@ class MainWindow(QMainWindow):
         self._cg_params = QWidget()
         cg_form = QFormLayout(self._cg_params)
         cg_form.setContentsMargins(0, 0, 0, 0)
-        self.sp_tol = QDoubleSpinBox()
+        self.sp_tol = NoWheelDoubleSpinBox()
         self.sp_tol.setRange(1e-20, 1e10)
         self.sp_tol.setDecimals(4)
         self.sp_tol.setValue(0.001)
-        self.sb_maxiter = QSpinBox()
+        self.sb_maxiter = NoWheelSpinBox()
         self.sb_maxiter.setRange(1, 10_000_000)
         self.sb_maxiter.setValue(500)
         _spin_no_buttons(self.sp_tol)
@@ -204,34 +321,85 @@ class MainWindow(QMainWindow):
         cg_form.addRow("Tolerance", self.sp_tol)
         cg_form.addRow("Max iterations", self.sb_maxiter)
 
-        self.cb_assumption = QComboBox()
+        self.cb_assumption = NoWheelComboBox()
         self.cb_assumption.addItem("Plane Stress", "plane_stress")
         self.cb_assumption.addItem("Plane Strain", "plane_strain")
         fg.addRow("Linear solver", self.cb_solver)
         fg.addRow(self._cg_params)
         fg.addRow("Plane assumption", self.cb_assumption)
         self._on_solver_changed()
+
+        self.chk_dynamic = QCheckBox("Dynamic analysis")
+        self.chk_dynamic.toggled.connect(self._on_dynamic_toggled)
+        fg.addRow(self.chk_dynamic)
+
+        self._dynamic_params = QWidget()
+        dyn_form = QFormLayout(self._dynamic_params)
+        dyn_form.setContentsMargins(0, 0, 0, 0)
+        self.sb_num_steps = NoWheelSpinBox()
+        self.sb_num_steps.setRange(2, 1_000_000)
+        self.sb_num_steps.setValue(101)
+        self.sp_dt = NoWheelDoubleSpinBox()
+        self.sp_dt.setRange(1e-12, 1e6)
+        self.sp_dt.setDecimals(6)
+        self.sp_dt.setValue(0.1)
+        self.cb_dynamic_method = NoWheelComboBox()
+        self.cb_dynamic_method.addItem("Average acceleration", "average_acceleration")
+        self.cb_dynamic_method.addItem("Linear acceleration", "linear_acceleration")
+        self.chk_damping = QCheckBox("Rayleigh damping")
+        self.sp_damp_alpha = NoWheelDoubleSpinBox()
+        self.sp_damp_alpha.setRange(0.0, 1e12)
+        self.sp_damp_alpha.setDecimals(6)
+        self.sp_damp_alpha.setValue(0.0)
+        self.sp_damp_beta = NoWheelDoubleSpinBox()
+        self.sp_damp_beta.setRange(0.0, 1e12)
+        self.sp_damp_beta.setDecimals(6)
+        self.sp_damp_beta.setValue(0.0)
+        for sp in (
+            self.sb_num_steps,
+            self.sp_dt,
+            self.sp_damp_alpha,
+            self.sp_damp_beta,
+        ):
+            _spin_no_buttons(sp)
+        dyn_form.addRow("Time steps", self.sb_num_steps)
+        dyn_form.addRow("Step size", self.sp_dt)
+        dyn_form.addRow("Integration", self.cb_dynamic_method)
+        dyn_form.addRow(self.chk_damping)
+        dyn_form.addRow("Alpha", self.sp_damp_alpha)
+        dyn_form.addRow("Beta", self.sp_damp_beta)
+        self.chk_damping.toggled.connect(self._on_damping_toggled)
+        self._on_damping_toggled(False)
+        fg.addRow(self._dynamic_params)
+        self._dynamic_params.setVisible(False)
+
         left.addWidget(gb_gen)
 
         gb_mat = QGroupBox("Material")
         fmat = QFormLayout(gb_mat)
-        self.sp_E = QDoubleSpinBox()
+        self.sp_E = NoWheelDoubleSpinBox()
         self.sp_E.setRange(1.0, 1e18)
         self.sp_E.setDecimals(4)
         # 200 GPa → 200e6 kPa (export converts kPa → Pa)
         self.sp_E.setValue(200_000_000.0)
-        self.sp_nu = QDoubleSpinBox()
+        self.sp_nu = NoWheelDoubleSpinBox()
         self.sp_nu.setRange(-0.99, 0.499999)
         self.sp_nu.setDecimals(4)
         self.sp_nu.setValue(0.3)
-        self.sp_thickness = QDoubleSpinBox()
+        self.sp_thickness = NoWheelDoubleSpinBox()
         self.sp_thickness.setRange(1e-12, 1e6)
         self.sp_thickness.setDecimals(4)
         self.sp_thickness.setValue(1.0)
-        for sp in (self.sp_E, self.sp_nu, self.sp_thickness):
+        self.sp_gamma = NoWheelDoubleSpinBox()
+        self.sp_gamma.setRange(0.0, 1e9)
+        self.sp_gamma.setDecimals(4)
+        # kN/m³ (export → N/m³); ~24 for concrete
+        self.sp_gamma.setValue(24.0)
+        for sp in (self.sp_E, self.sp_nu, self.sp_thickness, self.sp_gamma):
             _spin_no_buttons(sp)
         fmat.addRow("E (kPa)", self.sp_E)
         fmat.addRow("nu", self.sp_nu)
+        fmat.addRow("Unit weight γ (kN/m³)", self.sp_gamma)
         fmat.addRow("Thickness (plane stress)", self.sp_thickness)
         self.cb_assumption.currentIndexChanged.connect(self._on_assumption_changed)
         self._on_assumption_changed()
@@ -274,9 +442,9 @@ class MainWindow(QMainWindow):
 
         legend = QLabel(
             "<b>Legend</b> (checked state): "
-            "<span style='color:#e53935;'>Fix X only</span> · "
-            "<span style='color:#1e88e5;'>Fix Y only</span> · "
-            "<span style='color:#43a047;'>both fixed</span>"
+            "<span style='color:#e53935;'>Fix X only</span> (roller, vertical track) · "
+            "<span style='color:#1e88e5;'>Fix Y only</span> (roller, horizontal track) · "
+            "<span style='color:#43a047;'>both fixed</span> (pin)"
         )
         legend.setTextFormat(Qt.TextFormat.RichText)
         legend.setWordWrap(True)
@@ -287,76 +455,213 @@ class MainWindow(QMainWindow):
             self._refresh_bc_checkbox_styles(edge)
         left.addWidget(gb_bc)
 
-        gb_load = QGroupBox("Point loads")
-        fl = QVBoxLayout(gb_load)
+        gb_loads = QGroupBox("Loads")
+        loads_outer = QVBoxLayout(gb_loads)
+        load_tabs = QTabWidget()
+
+        # —— Point loads tab ——
+        point_tab = QWidget()
+        pt = QVBoxLayout(point_tab)
+        pt.setContentsMargins(4, 8, 4, 4)
+        pt.setSpacing(8)
+
         self.lbl_pick = QLabel("Selected node: (click mesh)")
-        fl.addWidget(self.lbl_pick)
-        hl = QHBoxLayout()
-        self.sp_lfx = QDoubleSpinBox()
+        pt.addWidget(self.lbl_pick)
+
+        load_form = QFormLayout()
+        load_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        self.sp_lfx = NoWheelDoubleSpinBox()
         self.sp_lfx.setRange(-1e20, 1e20)
         self.sp_lfx.setDecimals(4)
         self.sp_lfx.setValue(0.0)
-        self.sp_lfy = QDoubleSpinBox()
+        self.sp_lfy = NoWheelDoubleSpinBox()
         self.sp_lfy.setRange(-1e20, 1e20)
         self.sp_lfy.setDecimals(4)
         self.sp_lfy.setValue(0.0)
         _spin_no_buttons(self.sp_lfx)
         _spin_no_buttons(self.sp_lfy)
-        hl.addWidget(QLabel("fx (kN)"))
-        hl.addWidget(self.sp_lfx)
-        hl.addWidget(QLabel("fy (kN)"))
-        hl.addWidget(self.sp_lfy)
-        fl.addLayout(hl)
-        btn_add_load = QPushButton("Add / replace load on selected node")
+        load_form.addRow("fx (kN)", self.sp_lfx)
+        load_form.addRow("fy (kN)", self.sp_lfy)
+        pt.addLayout(load_form)
+
+        self.chk_dynamic_load = QCheckBox("Dynamic load (time-varying scale)")
+        self.chk_dynamic_load.toggled.connect(self._on_dynamic_load_toggled)
+        pt.addWidget(self.chk_dynamic_load)
+
+        self._dynamic_load_opts = QWidget()
+        dyn_form = QFormLayout(self._dynamic_load_opts)
+        dyn_form.setContentsMargins(12, 0, 0, 0)
+        self.cb_scale_preset = NoWheelComboBox()
+        self.cb_scale_preset.addItem("Linear scale", "linear")
+        self.sp_scale_start = NoWheelDoubleSpinBox()
+        self.sp_scale_start.setRange(-1e12, 1e12)
+        self.sp_scale_start.setDecimals(4)
+        self.sp_scale_start.setValue(0.0)
+        self.sp_scale_end = NoWheelDoubleSpinBox()
+        self.sp_scale_end.setRange(-1e12, 1e12)
+        self.sp_scale_end.setDecimals(4)
+        self.sp_scale_end.setValue(1.0)
+        for sp in (self.sp_scale_start, self.sp_scale_end):
+            _spin_no_buttons(sp)
+        scale_pair = QWidget()
+        scale_h = QHBoxLayout(scale_pair)
+        scale_h.setContentsMargins(0, 0, 0, 0)
+        scale_h.addWidget(QLabel("start"))
+        scale_h.addWidget(self.sp_scale_start)
+        scale_h.addWidget(QLabel("end"))
+        scale_h.addWidget(self.sp_scale_end)
+        dyn_form.addRow("Preset", self.cb_scale_preset)
+        dyn_form.addRow("Scale", scale_pair)
+        pt.addWidget(self._dynamic_load_opts)
+        self._on_dynamic_load_toggled(False)
+
+        btn_add_load = QPushButton("Apply to selected node")
         btn_add_load.clicked.connect(self._add_point_load)
-        fl.addWidget(btn_add_load)
+        pt.addWidget(btn_add_load)
 
-        self.tbl_loads = QTableWidget(0, 3)
-        self.tbl_loads.setHorizontalHeaderLabels(["Node", "fx (kN)", "fy (kN)"])
-        self.tbl_loads.horizontalHeader().setStretchLastSection(True)
-        fl.addWidget(self.tbl_loads)
-        btn_rm_load = QPushButton("Remove selected load row")
+        self.tbl_loads = QTableWidget(0, 4)
+        self.tbl_loads.setHorizontalHeaderLabels(["Node", "fx", "fy", "Scale"])
+        self.tbl_loads.setMinimumHeight(110)
+        self.tbl_loads.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.tbl_loads.verticalHeader().setVisible(False)
+        self.tbl_loads.verticalHeader().setDefaultSectionSize(24)
+        self.tbl_loads.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.tbl_loads.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        hdr = self.tbl_loads.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.tbl_loads.itemSelectionChanged.connect(self._on_load_row_selected)
+        pt.addWidget(self.tbl_loads, stretch=1)
+
+        btn_rm_load = QPushButton("Remove selected row")
         btn_rm_load.clicked.connect(self._remove_load_row)
-        fl.addWidget(btn_rm_load)
-        left.addWidget(gb_load)
+        pt.addWidget(btn_rm_load)
 
-        gb_dist = QGroupBox("Distributed loads (edge traction)")
-        dist_form = QFormLayout(gb_dist)
+        load_tabs.addTab(point_tab, "Point")
+
+        # —— Distributed loads tab ——
+        dist_tab = QWidget()
+        dist_layout = QVBoxLayout(dist_tab)
+        dist_layout.setContentsMargins(4, 8, 4, 4)
+        dist_layout.setSpacing(8)
+
         dist_hint = QLabel(
-            "Traction in kN/m (export → N/m). Start and end: along bottom/top "
-            "left→right; along left/right bottom→top. Linear along the full edge."
+            "Edge traction in kN/m (exported as N/m). "
+            "Start/end follow the edge: bottom/top left→right; "
+            "left/right bottom→top."
         )
         dist_hint.setWordWrap(True)
-        dist_form.addRow(dist_hint)
-        self.cb_dist_edge = QComboBox()
+        dist_hint.setStyleSheet("color: #555;")
+        dist_layout.addWidget(dist_hint)
+
+        dist_grid = QGridLayout()
+        dist_grid.setHorizontalSpacing(8)
+        dist_grid.setVerticalSpacing(6)
+        self.cb_dist_edge = NoWheelComboBox()
         for e in ("bottom", "top", "left", "right"):
             self.cb_dist_edge.addItem(e.capitalize(), e)
-        self.sp_dtx_s = QDoubleSpinBox()
-        self.sp_dtx_e = QDoubleSpinBox()
-        self.sp_dty_s = QDoubleSpinBox()
-        self.sp_dty_e = QDoubleSpinBox()
+        self.sp_dtx_s = NoWheelDoubleSpinBox()
+        self.sp_dtx_e = NoWheelDoubleSpinBox()
+        self.sp_dty_s = NoWheelDoubleSpinBox()
+        self.sp_dty_e = NoWheelDoubleSpinBox()
         for sp in (self.sp_dtx_s, self.sp_dtx_e, self.sp_dty_s, self.sp_dty_e):
             sp.setRange(-1e20, 1e20)
             sp.setDecimals(4)
             sp.setValue(0.0)
             _spin_no_buttons(sp)
-        dist_form.addRow("Edge", self.cb_dist_edge)
-        dist_form.addRow("Tx start (kN/m)", self.sp_dtx_s)
-        dist_form.addRow("Tx end", self.sp_dtx_e)
-        dist_form.addRow("Ty start (kN/m)", self.sp_dty_s)
-        dist_form.addRow("Ty end", self.sp_dty_e)
+        dist_grid.addWidget(QLabel("Edge"), 0, 0)
+        dist_grid.addWidget(self.cb_dist_edge, 0, 1, 1, 3)
+        dist_grid.addWidget(QLabel("Tx start"), 1, 0)
+        dist_grid.addWidget(self.sp_dtx_s, 1, 1)
+        dist_grid.addWidget(QLabel("Tx end"), 1, 2)
+        dist_grid.addWidget(self.sp_dtx_e, 1, 3)
+        dist_grid.addWidget(QLabel("Ty start"), 2, 0)
+        dist_grid.addWidget(self.sp_dty_s, 2, 1)
+        dist_grid.addWidget(QLabel("Ty end"), 2, 2)
+        dist_grid.addWidget(self.sp_dty_e, 2, 3)
+        dist_grid.setColumnStretch(1, 1)
+        dist_grid.setColumnStretch(3, 1)
+        dist_layout.addLayout(dist_grid)
+
+        self.chk_dist_dynamic = QCheckBox("Dynamic load (time-varying scale)")
+        self.chk_dist_dynamic.toggled.connect(self._on_dist_dynamic_toggled)
+        dist_layout.addWidget(self.chk_dist_dynamic)
+
+        self._dist_dynamic_opts = QWidget()
+        dist_dyn_form = QFormLayout(self._dist_dynamic_opts)
+        dist_dyn_form.setContentsMargins(12, 0, 0, 0)
+        self.cb_dist_scale_preset = NoWheelComboBox()
+        self.cb_dist_scale_preset.addItem("Linear scale", "linear")
+        self.sp_dist_scale_start = NoWheelDoubleSpinBox()
+        self.sp_dist_scale_start.setRange(-1e12, 1e12)
+        self.sp_dist_scale_start.setDecimals(4)
+        self.sp_dist_scale_start.setValue(0.0)
+        self.sp_dist_scale_end = NoWheelDoubleSpinBox()
+        self.sp_dist_scale_end.setRange(-1e12, 1e12)
+        self.sp_dist_scale_end.setDecimals(4)
+        self.sp_dist_scale_end.setValue(1.0)
+        for sp in (self.sp_dist_scale_start, self.sp_dist_scale_end):
+            _spin_no_buttons(sp)
+        dist_scale_pair = QWidget()
+        dist_scale_h = QHBoxLayout(dist_scale_pair)
+        dist_scale_h.setContentsMargins(0, 0, 0, 0)
+        dist_scale_h.addWidget(QLabel("start"))
+        dist_scale_h.addWidget(self.sp_dist_scale_start)
+        dist_scale_h.addWidget(QLabel("end"))
+        dist_scale_h.addWidget(self.sp_dist_scale_end)
+        dist_dyn_form.addRow("Preset", self.cb_dist_scale_preset)
+        dist_dyn_form.addRow("Scale", dist_scale_pair)
+        dist_layout.addWidget(self._dist_dynamic_opts)
+        self._on_dist_dynamic_toggled(False)
+
         hb_d = QHBoxLayout()
         btn_dist_apply = QPushButton("Apply to edge")
-        btn_dist_clear = QPushButton("Clear all distributed")
         btn_dist_apply.clicked.connect(self._dist_apply_edge)
-        btn_dist_clear.clicked.connect(self._dist_clear_all)
         hb_d.addWidget(btn_dist_apply)
-        hb_d.addWidget(btn_dist_clear)
-        dist_form.addRow(hb_d)
-        self.lbl_dist_status = QLabel("No distributed loads.")
-        self.lbl_dist_status.setWordWrap(True)
-        dist_form.addRow(self.lbl_dist_status)
-        left.addWidget(gb_dist)
+        dist_layout.addLayout(hb_d)
+
+        self.tbl_dist = QTableWidget(0, 6)
+        self.tbl_dist.setHorizontalHeaderLabels(
+            ["Edge", "Tx s", "Tx e", "Ty s", "Ty e", "Scale"]
+        )
+        self.tbl_dist.setMinimumHeight(110)
+        self.tbl_dist.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.tbl_dist.verticalHeader().setVisible(False)
+        self.tbl_dist.verticalHeader().setDefaultSectionSize(24)
+        self.tbl_dist.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.tbl_dist.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        dist_hdr = self.tbl_dist.horizontalHeader()
+        dist_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        for col in range(1, 6):
+            dist_hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+        self.tbl_dist.itemSelectionChanged.connect(self._on_dist_row_selected)
+        dist_layout.addWidget(self.tbl_dist, stretch=1)
+
+        dist_btn_row = QHBoxLayout()
+        btn_rm_dist = QPushButton("Remove selected row")
+        btn_rm_dist.clicked.connect(self._dist_remove_row)
+        btn_dist_clear = QPushButton("Clear all")
+        btn_dist_clear.clicked.connect(self._dist_clear_all)
+        dist_btn_row.addWidget(btn_rm_dist)
+        dist_btn_row.addWidget(btn_dist_clear)
+        dist_layout.addLayout(dist_btn_row)
+
+        load_tabs.addTab(dist_tab, "Distributed")
+        load_tabs.setMinimumHeight(320)
+        loads_outer.addWidget(load_tabs)
+        left.addWidget(gb_loads)
 
         gb_results = QGroupBox("Results")
         fr = QFormLayout(gb_results)
@@ -381,7 +686,7 @@ class MainWindow(QMainWindow):
         left.addWidget(btn_export)
         left.addStretch()
 
-        splitter.addWidget(scroll_host)
+        splitter.addWidget(scroll)
 
         # —— Right: graphics ——
         self.scene = QGraphicsScene(self)
@@ -391,7 +696,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.view)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([360, 900])
+        splitter.setSizes([420, 900])
         self.view.setBackgroundBrush(QBrush(QColor(252, 252, 255)))
 
         hint = QLabel(
@@ -400,6 +705,7 @@ class MainWindow(QMainWindow):
         hint.setStyleSheet("color: #555; padding: 4px;")
         self.statusBar().addPermanentWidget(hint)
         self.menuBar().setVisible(False)
+        self._update_dynamic_load_controls_enabled()
 
     def _solver_token(self) -> str:
         d = self.cb_solver.currentData()
@@ -416,6 +722,121 @@ class MainWindow(QMainWindow):
     def _on_solver_changed(self) -> None:
         cg = self._solver_token() == "CONJUGATE_GRADIENT"
         self._cg_params.setVisible(cg)
+
+    def _on_dynamic_toggled(self, checked: bool) -> None:
+        self._dynamic_params.setVisible(checked)
+        self._update_dynamic_load_controls_enabled()
+
+    def _update_dynamic_load_controls_enabled(self) -> None:
+        analysis_on = self.chk_dynamic.isChecked()
+        self.chk_dynamic_load.setEnabled(analysis_on)
+        self.chk_dist_dynamic.setEnabled(analysis_on)
+        if not analysis_on:
+            self._remove_dynamic_loads()
+            self.chk_dynamic_load.blockSignals(True)
+            self.chk_dynamic_load.setChecked(False)
+            self.chk_dynamic_load.blockSignals(False)
+            self.chk_dist_dynamic.blockSignals(True)
+            self.chk_dist_dynamic.setChecked(False)
+            self.chk_dist_dynamic.blockSignals(False)
+        self._on_dynamic_load_toggled(analysis_on and self.chk_dynamic_load.isChecked())
+        self._on_dist_dynamic_toggled(analysis_on and self.chk_dist_dynamic.isChecked())
+
+    def _remove_dynamic_loads(self) -> None:
+        """Remove loads marked dynamic from the tables; keep static loads."""
+        rows_to_remove: list[int] = []
+        for r in range(self.tbl_loads.rowCount()):
+            it = self.tbl_loads.item(r, 0)
+            if it is None:
+                continue
+            try:
+                nid = int(it.text())
+            except ValueError:
+                continue
+            if self._load_meta.get(nid, {}).get("is_dynamic"):
+                rows_to_remove.append(r)
+                self._load_meta.pop(nid, None)
+        for r in reversed(rows_to_remove):
+            self.tbl_loads.removeRow(r)
+
+        edges_to_remove = [
+            e
+            for e in list(self._dist_edge_knm)
+            if self._dist_meta.get(e, {}).get("is_dynamic")
+        ]
+        for edge in edges_to_remove:
+            self._dist_edge_knm.pop(edge, None)
+            self._dist_meta.pop(edge, None)
+        self._dist_refresh_table()
+        self._redraw_scene(fit_view=False)
+
+    def _on_damping_toggled(self, checked: bool) -> None:
+        self.sp_damp_alpha.setEnabled(checked)
+        self.sp_damp_beta.setEnabled(checked)
+
+    def _on_dynamic_load_toggled(self, checked: bool) -> None:
+        enabled = self.chk_dynamic.isChecked() and checked
+        self._dynamic_load_opts.setVisible(enabled)
+        self.cb_scale_preset.setEnabled(enabled)
+        self.sp_scale_start.setEnabled(enabled)
+        self.sp_scale_end.setEnabled(enabled)
+
+    def _on_dist_dynamic_toggled(self, checked: bool) -> None:
+        enabled = self.chk_dynamic.isChecked() and checked
+        self._dist_dynamic_opts.setVisible(enabled)
+        self.cb_dist_scale_preset.setEnabled(enabled)
+        self.sp_dist_scale_start.setEnabled(enabled)
+        self.sp_dist_scale_end.setEnabled(enabled)
+
+    def _dynamic_method_token(self) -> str:
+        d = self.cb_dynamic_method.currentData()
+        return str(d) if d else "average_acceleration"
+
+    def _load_dynamic_label(self, nid: int) -> str:
+        meta = self._load_meta.get(nid)
+        if not meta or not meta.get("is_dynamic"):
+            return "static"
+        s0 = float(meta.get("scale_start", 0.0))
+        s1 = float(meta.get("scale_end", 1.0))
+        return f"{_fmt_float(s0)}→{_fmt_float(s1)}"
+
+    def _dist_dynamic_label(self, edge: str) -> str:
+        meta = self._dist_meta.get(edge)
+        if not meta or not meta.get("is_dynamic"):
+            return "static"
+        s0 = float(meta.get("scale_start", 0.0))
+        s1 = float(meta.get("scale_end", 1.0))
+        return f"{_fmt_float(s0)}→{_fmt_float(s1)}"
+
+    def _on_load_row_selected(self) -> None:
+        rows = self.tbl_loads.selectionModel().selectedRows()
+        if len(rows) != 1:
+            return
+        r = rows[0].row()
+        try:
+            nid = int(self.tbl_loads.item(r, 0).text())
+            fx = float(self.tbl_loads.item(r, 1).text())
+            fy = float(self.tbl_loads.item(r, 2).text())
+        except (AttributeError, TypeError, ValueError):
+            return
+        self._selected_node_1based = nid
+        self.lbl_pick.setText(f"Selected node: {nid}")
+        self.sp_lfx.setValue(fx)
+        self.sp_lfy.setValue(fy)
+        meta = self._load_meta.get(nid, {})
+        is_dyn = bool(meta.get("is_dynamic", False)) and self.chk_dynamic.isChecked()
+        self.chk_dynamic_load.blockSignals(True)
+        self.chk_dynamic_load.setChecked(is_dyn)
+        self.chk_dynamic_load.blockSignals(False)
+        self._on_dynamic_load_toggled(is_dyn)
+        if is_dyn:
+            self.sp_scale_start.setValue(float(meta.get("scale_start", 0.0)))
+            self.sp_scale_end.setValue(float(meta.get("scale_end", 1.0)))
+            preset = str(meta.get("scale_preset", "linear"))
+            idx = self.cb_scale_preset.findData(preset)
+            if idx >= 0:
+                self.cb_scale_preset.setCurrentIndex(idx)
+        self._redraw_scene(fit_view=False)
 
     def _on_edge_bc_changed(self, edge: str, _checked: bool) -> None:
         self._refresh_bc_checkbox_styles(edge)
@@ -446,6 +867,14 @@ class MainWindow(QMainWindow):
         else:
             self.lbl_pick.setText("Selected node: (click mesh)")
         self._redraw_scene(fit_view=False)
+
+    def _active_bc_edges(self) -> set[str]:
+        """Edges with at least one fixity checkbox enabled in the UI."""
+        active: set[str] = set()
+        for edge, (cx, cy) in self._bc_checks.items():
+            if cx.isChecked() or cy.isChecked():
+                active.add(edge)
+        return active
 
     def _collect_fixities(self) -> dict[int, tuple[int, int]]:
         out: dict[int, tuple[int, int]] = {}
@@ -481,7 +910,8 @@ class MainWindow(QMainWindow):
             return
         self._clear_results()
         self._dist_edge_knm.clear()
-        self._dist_refresh_status()
+        self._dist_meta.clear()
+        self._dist_refresh_table()
         self.view.set_mesh(self._mesh)
         self._redraw_scene(fit_view=True)
         self._sync_load_table_after_mesh_change()
@@ -550,6 +980,12 @@ class MainWindow(QMainWindow):
             if nid < 1 or nid > nmax:
                 rows_to_remove.append(r)
         for r in reversed(rows_to_remove):
+            it = self.tbl_loads.item(r, 0)
+            if it is not None:
+                try:
+                    self._load_meta.pop(int(it.text()), None)
+                except ValueError:
+                    pass
             self.tbl_loads.removeRow(r)
 
     def _redraw_scene(self, *, fit_view: bool = False) -> None:
@@ -573,6 +1009,7 @@ class MainWindow(QMainWindow):
         pen_def.setWidthF(1.6)
         brush_def = QBrush(QColor(255, 200, 160, 50))
         fixities = self._collect_fixities()
+        active_bc_edges = self._active_bc_edges()
 
         for a, b, c, d in m.elements:
             if show_deformed:
@@ -636,6 +1073,50 @@ class MainWindow(QMainWindow):
             el.setZValue(z)
             self.scene.addItem(el)
 
+            if fix_x or fix_y:
+                sym_pen = QPen(QColor(35, 35, 45))
+                sym_pen.setCosmetic(True)
+                sym_pen.setWidthF(1.25)
+                sym_brush = QBrush(QColor(252, 252, 255))
+                sym_z = z + 0.5
+                sym_size = max(r * 3.4, r + 1e-9)
+                edges = _boundary_edges_for_node(m, i)
+                edge = _pick_symbol_edge(
+                    edges,
+                    fix_x=bool(fix_x),
+                    fix_y=bool(fix_y),
+                    active_edges=active_bc_edges,
+                )
+                if edge is not None:
+                    if fix_x and fix_y:
+                        self._draw_pin_symbol(
+                            p, edge, sym_size, sym_pen, sym_brush, sym_z
+                        )
+                    elif fix_y:
+                        self._draw_roller_symbol(
+                            p,
+                            edge,
+                            fixed_dof="y",
+                            boundary_edges=edges,
+                            size=sym_size,
+                            pen=sym_pen,
+                            brush=sym_brush,
+                            z=sym_z,
+                        )
+                    else:
+                        self._draw_roller_symbol(
+                            p,
+                            edge,
+                            fixed_dof="x",
+                            boundary_edges=edges,
+                            size=sym_size,
+                            pen=sym_pen,
+                            brush=sym_brush,
+                            z=sym_z,
+                        )
+
+        self._draw_point_load_arrows(show_deformed)
+
         pad = max(m.width, m.height) * 0.05 + 1e-6
         if show_deformed:
             xs = [self._node_model_xy(i, deformed=True)[0] for i in range(m.num_nodes)]
@@ -653,26 +1134,237 @@ class MainWindow(QMainWindow):
                 self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
             )
 
-    def _dist_refresh_status(self) -> None:
-        if not self._dist_edge_knm:
-            self.lbl_dist_status.setText("No distributed loads.")
+    def _collect_point_loads_display(self) -> list[tuple[int, float, float]]:
+        loads: list[tuple[int, float, float]] = []
+        for r in range(self.tbl_loads.rowCount()):
+            try:
+                nid = int(self.tbl_loads.item(r, 0).text())
+                fx = float(self.tbl_loads.item(r, 1).text())
+                fy = float(self.tbl_loads.item(r, 2).text())
+            except (AttributeError, TypeError, ValueError):
+                continue
+            loads.append((nid, fx, fy))
+        return loads
+
+    def _draw_point_load_arrows(self, show_deformed: bool) -> None:
+        if self._mesh is None:
             return
-        parts = []
+        loads = self._collect_point_loads_display()
+        if not loads:
+            return
+
+        mags = [math.hypot(fx, fy) for _, fx, fy in loads]
+        max_mag = max(mags)
+        if max_mag < 1e-12:
+            return
+
+        span = max(self._mesh.width, self._mesh.height)
+        ref_len = 0.075 * span
+        min_len = 0.028 * span
+        pen = QPen(QColor(210, 70, 45))
+        pen.setCosmetic(True)
+        pen.setWidthF(1.8)
+        brush = QBrush(QColor(210, 70, 45))
+
+        for nid, fx, fy in loads:
+            mag = math.hypot(fx, fy)
+            if mag < 1e-12:
+                continue
+            i = nid - 1
+            if i < 0 or i >= self._mesh.num_nodes:
+                continue
+            mx, my = self._node_model_xy(i, deformed=show_deformed)
+            tip = _scene_xy(mx, my)
+            length = max(min_len, ref_len * (mag / max_mag))
+            dx = fx / mag
+            dy = -fy / mag  # model +Y up → scene +Y down
+            self._draw_force_arrow(tip, dx, dy, length, pen, brush, z=6.0)
+
+    def _draw_force_arrow(
+        self,
+        tip: QPointF,
+        dx: float,
+        dy: float,
+        length: float,
+        pen: QPen,
+        brush: QBrush,
+        z: float,
+    ) -> None:
+        """Arrowhead at the node; shaft extends opposite the applied force."""
+        head_frac = 0.22
+        head_half = 0.1
+        far = QPointF(tip.x() - dx * length, tip.y() - dy * length)
+        shaft_end = QPointF(
+            tip.x() - dx * length * head_frac,
+            tip.y() - dy * length * head_frac,
+        )
+        shaft = QGraphicsLineItem(far.x(), far.y(), shaft_end.x(), shaft_end.y())
+        shaft.setPen(pen)
+        shaft.setZValue(z)
+        self.scene.addItem(shaft)
+
+        px, py = -dy, dx
+        hw = length * head_half
+        head = QPolygonF(
+            [
+                tip,
+                QPointF(shaft_end.x() + px * hw, shaft_end.y() + py * hw),
+                QPointF(shaft_end.x() - px * hw, shaft_end.y() - py * hw),
+            ]
+        )
+        item = self.scene.addPolygon(head, pen, brush)
+        item.setZValue(z + 0.1)
+
+    def _draw_pin_symbol(
+        self,
+        node_scene: QPointF,
+        edge: str,
+        size: float,
+        pen: QPen,
+        brush: QBrush,
+        z: float,
+    ) -> None:
+        """Fixed support: triangle with apex at node, base outside the mesh."""
+        outward = _EDGE_OUTWARD_SCENE[edge]
+        tangent = _EDGE_TANGENT_SCENE[edge]
+        base_center = QPointF(
+            node_scene.x() + outward.x() * size,
+            node_scene.y() + outward.y() * size,
+        )
+        half_base = size * 0.58
+        poly = QPolygonF(
+            [
+                node_scene,
+                QPointF(
+                    base_center.x() + tangent.x() * half_base,
+                    base_center.y() + tangent.y() * half_base,
+                ),
+                QPointF(
+                    base_center.x() - tangent.x() * half_base,
+                    base_center.y() - tangent.y() * half_base,
+                ),
+            ]
+        )
+        item = self.scene.addPolygon(poly, pen, brush)
+        item.setZValue(z)
+
+    def _draw_roller_symbol(
+        self,
+        node_scene: QPointF,
+        edge: str,
+        *,
+        fixed_dof: Literal["x", "y"],
+        boundary_edges: list[str] | None = None,
+        size: float,
+        pen: QPen,
+        brush: QBrush,
+        z: float,
+    ) -> None:
+        """Roller: circle between node and a track line tangent to the circle."""
+        cr = size * 0.38
+        track_half = size * 0.68
+        offset = size * 0.62
+        edges = boundary_edges or [edge]
+
+        if fixed_dof == "y":
+            # Fix Y: same x as node; above on top row, below elsewhere.
+            on_top = "top" in edges and "bottom" not in edges
+            if on_top:
+                center = QPointF(node_scene.x(), node_scene.y() - offset)
+                ty = center.y() - cr
+            else:
+                center = QPointF(node_scene.x(), node_scene.y() + offset)
+                ty = center.y() + cr
+            p1 = QPointF(center.x() - track_half, ty)
+            p2 = QPointF(center.x() + track_half, ty)
+        else:
+            # Fix X: same y as node; left on bottom/top spans, right on right wall.
+            on_horizontal = "bottom" in edges or "top" in edges
+            on_right_wall = "right" in edges and not on_horizontal
+            if on_right_wall:
+                center = QPointF(node_scene.x() + offset, node_scene.y())
+                tx = center.x() + cr
+            else:
+                center = QPointF(node_scene.x() - offset, node_scene.y())
+                tx = center.x() - cr
+            p1 = QPointF(tx, center.y() - track_half)
+            p2 = QPointF(tx, center.y() + track_half)
+
+        line = QGraphicsLineItem(p1.x(), p1.y(), p2.x(), p2.y())
+        line.setPen(pen)
+        line.setZValue(z)
+        self.scene.addItem(line)
+
+        circ = QGraphicsEllipseItem(center.x() - cr, center.y() - cr, 2 * cr, 2 * cr)
+        circ.setPen(pen)
+        circ.setBrush(brush)
+        circ.setZValue(z + 0.1)
+        self.scene.addItem(circ)
+
+    def _dist_refresh_table(self) -> None:
+        self.tbl_dist.setRowCount(0)
         for edge in ("bottom", "top", "left", "right"):
             if edge not in self._dist_edge_knm:
                 continue
             txs, txe, tys, tye = self._dist_edge_knm[edge]
-            parts.append(
-                f"{edge}: Tx {_fmt_float(txs)}→{_fmt_float(txe)}, "
-                f"Ty {_fmt_float(tys)}→{_fmt_float(tye)}"
+            row = self.tbl_dist.rowCount()
+            self.tbl_dist.insertRow(row)
+            edge_item = QTableWidgetItem(edge.capitalize())
+            edge_item.setData(Qt.ItemDataRole.UserRole, edge)
+            self.tbl_dist.setItem(row, 0, edge_item)
+            self.tbl_dist.setItem(row, 1, QTableWidgetItem(_fmt_float(txs)))
+            self.tbl_dist.setItem(row, 2, QTableWidgetItem(_fmt_float(txe)))
+            self.tbl_dist.setItem(row, 3, QTableWidgetItem(_fmt_float(tys)))
+            self.tbl_dist.setItem(row, 4, QTableWidgetItem(_fmt_float(tye)))
+            self.tbl_dist.setItem(
+                row, 5, QTableWidgetItem(self._dist_dynamic_label(edge))
             )
-        self.lbl_dist_status.setText("; ".join(parts))
+
+    def _dist_select_edge_row(self, edge: str) -> None:
+        for r in range(self.tbl_dist.rowCount()):
+            item = self.tbl_dist.item(r, 0)
+            if item is None:
+                continue
+            if item.data(Qt.ItemDataRole.UserRole) == edge:
+                self.tbl_dist.selectRow(r)
+                return
+
+    def _on_dist_row_selected(self) -> None:
+        rows = self.tbl_dist.selectionModel().selectedRows()
+        if len(rows) != 1:
+            return
+        r = rows[0].row()
+        item = self.tbl_dist.item(r, 0)
+        if item is None:
+            return
+        edge = item.data(Qt.ItemDataRole.UserRole)
+        if not edge or edge not in self._dist_edge_knm:
+            return
+        idx = self.cb_dist_edge.findData(edge)
+        if idx >= 0:
+            self.cb_dist_edge.setCurrentIndex(idx)
+        txs, txe, tys, tye = self._dist_edge_knm[edge]
+        self.sp_dtx_s.setValue(txs)
+        self.sp_dtx_e.setValue(txe)
+        self.sp_dty_s.setValue(tys)
+        self.sp_dty_e.setValue(tye)
+        meta = self._dist_meta.get(edge, {})
+        is_dyn = bool(meta.get("is_dynamic", False)) and self.chk_dynamic.isChecked()
+        self.chk_dist_dynamic.blockSignals(True)
+        self.chk_dist_dynamic.setChecked(is_dyn)
+        self.chk_dist_dynamic.blockSignals(False)
+        self._on_dist_dynamic_toggled(is_dyn)
+        if is_dyn:
+            self.sp_dist_scale_start.setValue(float(meta.get("scale_start", 0.0)))
+            self.sp_dist_scale_end.setValue(float(meta.get("scale_end", 1.0)))
+            preset = str(meta.get("scale_preset", "linear"))
+            pidx = self.cb_dist_scale_preset.findData(preset)
+            if pidx >= 0:
+                self.cb_dist_scale_preset.setCurrentIndex(pidx)
 
     def _dist_apply_edge(self) -> None:
         if self._mesh is None:
-            QMessageBox.warning(
-                self, "Distributed loads", "Generate a mesh first."
-            )
+            QMessageBox.warning(self, "Distributed loads", "Generate a mesh first.")
             return
         edge = str(self.cb_dist_edge.currentData())
         self._dist_edge_knm[edge] = (
@@ -681,11 +1373,33 @@ class MainWindow(QMainWindow):
             float(self.sp_dty_s.value()),
             float(self.sp_dty_e.value()),
         )
-        self._dist_refresh_status()
+        is_dyn = self.chk_dynamic.isChecked() and self.chk_dist_dynamic.isChecked()
+        self._dist_meta[edge] = {
+            "is_dynamic": is_dyn,
+            "scale_start": float(self.sp_dist_scale_start.value()),
+            "scale_end": float(self.sp_dist_scale_end.value()),
+            "scale_preset": str(self.cb_dist_scale_preset.currentData() or "linear"),
+        }
+        self._dist_refresh_table()
+        self._dist_select_edge_row(edge)
+
+    def _dist_remove_row(self) -> None:
+        r = self.tbl_dist.currentRow()
+        if r < 0:
+            return
+        item = self.tbl_dist.item(r, 0)
+        if item is None:
+            return
+        edge = item.data(Qt.ItemDataRole.UserRole)
+        if edge:
+            self._dist_edge_knm.pop(str(edge), None)
+            self._dist_meta.pop(str(edge), None)
+        self._dist_refresh_table()
 
     def _dist_clear_all(self) -> None:
         self._dist_edge_knm.clear()
-        self._dist_refresh_status()
+        self._dist_meta.clear()
+        self._dist_refresh_table()
 
     def _add_point_load(self) -> None:
         if self._selected_node_1based <= 0:
@@ -694,6 +1408,13 @@ class MainWindow(QMainWindow):
         nid = self._selected_node_1based
         fx = self.sp_lfx.value()
         fy = self.sp_lfy.value()
+        is_dyn = self.chk_dynamic.isChecked() and self.chk_dynamic_load.isChecked()
+        self._load_meta[nid] = {
+            "is_dynamic": is_dyn,
+            "scale_start": float(self.sp_scale_start.value()),
+            "scale_end": float(self.sp_scale_end.value()),
+            "scale_preset": str(self.cb_scale_preset.currentData() or "linear"),
+        }
         for r in range(self.tbl_loads.rowCount()):
             it = self.tbl_loads.item(r, 0)
             if it is not None and int(it.text()) == nid:
@@ -704,11 +1425,21 @@ class MainWindow(QMainWindow):
         self.tbl_loads.setItem(row, 0, QTableWidgetItem(str(nid)))
         self.tbl_loads.setItem(row, 1, QTableWidgetItem(_fmt_float(fx)))
         self.tbl_loads.setItem(row, 2, QTableWidgetItem(_fmt_float(fy)))
+        self.tbl_loads.setItem(row, 3, QTableWidgetItem(self._load_dynamic_label(nid)))
+        self.tbl_loads.selectRow(row)
+        self._redraw_scene(fit_view=False)
 
     def _remove_load_row(self) -> None:
         r = self.tbl_loads.currentRow()
         if r >= 0:
+            it = self.tbl_loads.item(r, 0)
+            if it is not None:
+                try:
+                    self._load_meta.pop(int(it.text()), None)
+                except ValueError:
+                    pass
             self.tbl_loads.removeRow(r)
+        self._redraw_scene(fit_view=False)
 
     def _build_export_model(self) -> ExportModel:
         if self._mesh is None:
@@ -719,6 +1450,7 @@ class MainWindow(QMainWindow):
             name=name,
             E=float(self.sp_E.value()) * 1000.0,
             nu=float(self.sp_nu.value()),
+            gamma=float(self.sp_gamma.value()) * 1000.0,
         )
         solver = self._solver_token()
         if solver == "CONJUGATE_GRADIENT":
@@ -743,8 +1475,34 @@ class MainWindow(QMainWindow):
             point_loads=self._loads_from_table(),
             debug=1 if self.chk_engine_debug.isChecked() else 0,
             distributed_edge_traction_knm=dict(self._dist_edge_knm),
+            distributed_edge_meta=self._distributed_edge_meta_for_export(),
+            is_dynamic=self.chk_dynamic.isChecked(),
+            time_step_size=float(self.sp_dt.value()),
+            num_time_steps=int(self.sb_num_steps.value()),
+            dynamic_method=cast(
+                Literal["average_acceleration", "linear_acceleration"],
+                self._dynamic_method_token(),
+            ),
+            damping_enabled=self.chk_damping.isChecked(),
+            damping_alpha=float(self.sp_damp_alpha.value()),
+            damping_beta=float(self.sp_damp_beta.value()),
         )
         return em
+
+    def _distributed_edge_meta_for_export(self) -> dict[str, DistributedEdgeMeta]:
+        out: dict[str, DistributedEdgeMeta] = {}
+        if not self.chk_dynamic.isChecked():
+            return out
+        for edge in self._dist_edge_knm:
+            meta = self._dist_meta.get(edge, {})
+            preset = str(meta.get("scale_preset", "linear"))
+            out[edge] = DistributedEdgeMeta(
+                is_dynamic=bool(meta.get("is_dynamic", False)),
+                scale_start=float(meta.get("scale_start", 0.0)),
+                scale_end=float(meta.get("scale_end", 1.0)),
+                scale_preset=cast(Literal["linear"], preset),
+            )
+        return out
 
     def _loads_from_table(self) -> list[PointLoad]:
         loads: list[PointLoad] = []
@@ -755,7 +1513,22 @@ class MainWindow(QMainWindow):
                 fy = float(self.tbl_loads.item(r, 2).text())
             except (AttributeError, ValueError):
                 continue
-            loads.append(PointLoad(node_id=nid, fx=fx * 1000.0, fy=fy * 1000.0))
+            meta = self._load_meta.get(nid, {})
+            is_dyn = (
+                bool(meta.get("is_dynamic", False)) and self.chk_dynamic.isChecked()
+            )
+            preset = str(meta.get("scale_preset", "linear"))
+            loads.append(
+                PointLoad(
+                    node_id=nid,
+                    fx=fx * 1000.0,
+                    fy=fy * 1000.0,
+                    is_dynamic=is_dyn,
+                    scale_start=float(meta.get("scale_start", 0.0)),
+                    scale_end=float(meta.get("scale_end", 1.0)),
+                    scale_preset=cast(Literal["linear"], preset),
+                )
+            )
         return loads
 
     def _export_file(self) -> None:

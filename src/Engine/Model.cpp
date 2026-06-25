@@ -65,11 +65,6 @@ void Model::Assemble() {
 		AssembleM();
 		AssembleC();
 	}
-
-	DiscretizeF();
-	AssembleF();
-
-	ApplyPointLoads();
 }
 
 /* METHODS FOR CONSTRUCTING ELEMENTAL MATRICES */
@@ -84,14 +79,18 @@ void Model::DiscretizeK() {
 	}
 }
 
-void Model::DiscretizeF() {
+void Model::DiscretizeF(int currentStep) {
 	// store the distributed loads within each element
 	// clear each elements loads before adding them in case this is called twice
 	for (auto& [id, el] : elements) {
 		el.ClearDistributedLoads();
 	}
-	for (const auto& [id, load] : distLoads){
+	for (auto& [id, load] : distLoads){
 		Element& el = elements.at(load.element);
+		if (currentStep > 0) {
+			double scale = distLoadHistory[id][currentStep - 1];
+			load.scale = scale;
+		}
 		el.AddDistributedLoad(load);
 	}
 
@@ -228,15 +227,19 @@ void Model::AssembleF() {
 }
 
 // operate directly on the global force vector
-void Model::ApplyPointLoads() {
+void Model::ApplyPointLoads(int currentStep) {
 
 	for (auto const& pair : pointLoads) {
 		int dof = 2 * (pair.second.node - 1);
 		double xload = pair.second.xvalue;
 		double yload = pair.second.yvalue;
 
-		globalF[dof] += xload;
-		globalF[dof + 1] += yload;
+		double scale = 1.0;
+		if (currentStep > 0)
+			scale = pointLoadHistory[pair.first][currentStep - 1];
+
+		globalF[dof] += (xload * scale);
+		globalF[dof + 1] += (yload * scale);
 	}
 }
 
@@ -275,6 +278,8 @@ void Model::FindConstrainedDOFs() {
 void Model::Solve() {
 
 	globalD.assign(2 * numNodes, 0.0);
+
+	FindConstrainedDOFs();
 	
 	if (isDynamic)
 		SolveDynamic();
@@ -284,11 +289,14 @@ void Model::Solve() {
 
 void Model::SolveStatic() {
 
+	DiscretizeF();
+	AssembleF();
+
+	ApplyPointLoads();
+
 	// make an effectiveK matrix so avoid modifying the original K when applying BCs
 	std::vector<std::vector<double>> effectiveK(globalK);
 	std::vector<double> effectiveF(globalF);
-
-	FindConstrainedDOFs();
 
 	// algorithms like cholesky decomp require matrix to be symmetric
 	// there is some tolerance issues causing asymmetry not sure why
@@ -340,22 +348,121 @@ void Model::SolveDynamic() {
 
 
 	/* FIRST TIME STEP */
+	int currentStep = 1;
 
 	// initialize the force vector for the first time step using the scalers at first index
+	DiscretizeF(currentStep);
+	AssembleF();
+	ApplyPointLoads(currentStep);
+	ApplyBCVector(globalF);
+	std::vector<std::vector<double>> effectiveM(globalM);
+	ApplyBCMatrix(effectiveM);
 
+	// compute initial acceleration using M*a = f - C*v - K*d
+	std::vector<double> effectiveF = globalF - (globalC * globalVeloHistory[0]) - (globalK * globalDispHistory[0]);
+	solver.Solve(effectiveM, effectiveF, globalAccelHistory[0]);
+	// now just to make sure, zero out the constrained DOFs in acceleration vector
+	ApplyBCVector(globalAccelHistory[0]);
+
+	currentStep += 1;
+
+	/* LOOP OVER REST OF STEPS */
+	while (currentStep <= numTimeStep) {
+		DiscretizeF(currentStep);
+		AssembleF();
+		ApplyPointLoads(currentStep);
+
+		if (dynamicMethod == DynamicMethod::AVERAGE_ACCEL) {
+			effectiveF = globalF + globalM * (globalDispHistory[currentStep - 2] * (4.0 / std::pow(timeStepSize, 2)) + globalVeloHistory[currentStep - 2] * (4.0 / timeStepSize) + globalAccelHistory[currentStep - 2]) + globalC * (globalDispHistory[currentStep - 2] * (2.0 / timeStepSize) + globalVeloHistory[currentStep - 2]);
+		}
+		else if (dynamicMethod == DynamicMethod::LINEAR_ACCEL) {
+			effectiveF = globalF + globalM * (globalDispHistory[currentStep - 2] * (6.0 / std::pow(timeStepSize, 2)) + globalVeloHistory[currentStep - 2] * (6.0 / timeStepSize) + globalAccelHistory[currentStep - 2] * 2.0) + globalC * (globalDispHistory[currentStep - 2] * (3.0 / timeStepSize) + globalVeloHistory[currentStep - 2] * 2.0 + globalAccelHistory[currentStep - 2] * (timeStepSize / 2.0));
+		}
+		else
+			throw std::invalid_argument("Not a valid dynamic method");
+
+		ApplyBCVector(effectiveF);
+
+		// solve for the displacement at current step
+		solver.Solve(effectiveK, effectiveF, globalDispHistory[currentStep - 1]);
+		// now compute velocity and accel
+		if (dynamicMethod == DynamicMethod::AVERAGE_ACCEL) {
+			globalVeloHistory[currentStep - 1] = globalVeloHistory[currentStep - 2] + (globalDispHistory[currentStep - 1] - globalDispHistory[currentStep - 2] - globalVeloHistory[currentStep - 2] * timeStepSize) * (2.0 / timeStepSize);
+			globalAccelHistory[currentStep - 1] = (globalDispHistory[currentStep - 1] - globalDispHistory[currentStep - 2] - globalVeloHistory[currentStep - 2] * timeStepSize) * (4.0 / std::pow(timeStepSize, 2)) - globalAccelHistory[currentStep - 2];
+		}
+		else if (dynamicMethod == DynamicMethod::LINEAR_ACCEL) {
+			globalVeloHistory[currentStep - 1] = (globalDispHistory[currentStep - 1] - globalDispHistory[currentStep - 2]) * (3.0 / timeStepSize) - globalVeloHistory[currentStep - 2] * 2.0 - globalAccelHistory[currentStep - 2] * (timeStepSize / 2.0);
+			globalAccelHistory[currentStep - 1] = (globalDispHistory[currentStep - 1] - globalDispHistory[currentStep - 2] - globalVeloHistory[currentStep - 2] * timeStepSize - globalAccelHistory[currentStep - 2] * (std::pow(timeStepSize, 2) / 3.0)) * (6.0 / std::pow(timeStepSize, 2));
+		}
+
+		// reinforce BC just in case
+		ApplyBCVector(globalDispHistory[currentStep - 1]);
+		ApplyBCVector(globalVeloHistory[currentStep - 1]);
+		ApplyBCVector(globalAccelHistory[currentStep - 1]);
+
+		currentStep += 1;
+	}
 }
 
 void Model::ProcessResults() {
 
-	// clear containers
-	globalDX.clear();
-	globalDY.clear();
+	if (isDynamic) {
+		globalDispHistX.clear();
+		globalDispHistY.clear();
+		globalVeloHistX.clear();
+		globalVeloHistY.clear();
+		globalAccelHistX.clear();
+		globalAccelHistY.clear();
 
-	// convert global displacements to separate x and y vectors
-	for (int i = 0; i < numNodes * 2; i++) {
-		if (i % 2 == 0)
-			globalDX.push_back(globalD[i]);
-		else
-			globalDY.push_back(globalD[i]);
+		const size_t nSteps = globalDispHistory.size();
+		globalDispHistX.resize(nSteps);
+		globalDispHistY.resize(nSteps);
+		globalVeloHistX.resize(nSteps);
+		globalVeloHistY.resize(nSteps);
+		globalAccelHistX.resize(nSteps);
+		globalAccelHistY.resize(nSteps);
+
+		for (size_t t = 0; t < nSteps; ++t) {
+			globalDispHistX[t].resize(numNodes);
+			globalDispHistY[t].resize(numNodes);
+			globalVeloHistX[t].resize(numNodes);
+			globalVeloHistY[t].resize(numNodes);
+			globalAccelHistX[t].resize(numNodes);
+			globalAccelHistY[t].resize(numNodes);
+
+			for (int n = 0; n < numNodes; ++n) {
+				const int dof = 2 * n;
+				globalDispHistX[t][n] = globalDispHistory[t][dof];
+				globalDispHistY[t][n] = globalDispHistory[t][dof + 1];
+				globalVeloHistX[t][n] = globalVeloHistory[t][dof];
+				globalVeloHistY[t][n] = globalVeloHistory[t][dof + 1];
+				globalAccelHistX[t][n] = globalAccelHistory[t][dof];
+				globalAccelHistY[t][n] = globalAccelHistory[t][dof + 1];
+			}
+		}
+
+		// final time step for export (same layout as static globalDX/globalDY)
+		globalDX.clear();
+		globalDY.clear();
+		if (!globalDispHistory.empty()) {
+			globalD = globalDispHistory.back();
+			for (int n = 0; n < numNodes; ++n) {
+				globalDX.push_back(globalD[2 * n]);
+				globalDY.push_back(globalD[2 * n + 1]);
+			}
+		}
+	}
+	else {
+		// clear containers
+		globalDX.clear();
+		globalDY.clear();
+
+		// convert global displacements to separate x and y vectors
+		for (int i = 0; i < numNodes * 2; i++) {
+			if (i % 2 == 0)
+				globalDX.push_back(globalD[i]);
+			else
+				globalDY.push_back(globalD[i]);
+		}
 	}
 }

@@ -348,13 +348,13 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifst
 				ss >> currentTime >> junk >> currentStep;
 				continue;
 			}
-			else if (junk == "node:") {
+			else if (junk == "id:") {
 				int id;
 				double scale;
 				ss >> id >> junk >> scale;
-				// check if this node exists in the point loads
+				// check if this id exists in the point loads
 				if (!model.GetPointLoads().count(id))
-					throw std::invalid_argument("Dynamic load is not applied to valid node");
+					throw std::invalid_argument("Dynamic load does not have a valid ID");
 				else
 					model.GetPointLoadHistory()[id].push_back(scale);
 			}
@@ -466,13 +466,13 @@ void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std
 				ss >> currentTime >> junk >> currentStep;
 				continue;
 			}
-			else if (junk == "element:") {
+			else if (junk == "id:") {
 				int id;
 				double scale;
 				ss >> id >> junk >> scale;
-				// check if this element exists in the distributed loads
+				// check if this id exists in the distributed loads
 				if (!model.GetDistLoads().count(id))
-					throw std::invalid_argument("Dynamic load is not applied to valid node");
+					throw std::invalid_argument("Dynamic load does not have valid ID");
 				else
 					model.GetDistLoadHistory()[id].push_back(scale);
 			}

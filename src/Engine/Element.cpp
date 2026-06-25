@@ -186,6 +186,10 @@ void Element::ConstructFQ4() {
 			double loadX = N[edge] * load.xvalues[0] + N[(edge + 1) % N.size()] * load.xvalues[1];
 			double loadY = N[edge] * load.yvalues[0] + N[(edge + 1) % N.size()] * load.yvalues[1];
 
+			// multiply the loads by the scale
+			loadX *= load.scale;
+			loadY *= load.scale;
+
 			std::vector<double> tMatrix = { loadX, loadY };
 
 			// need to put shape functions into 2x8 form

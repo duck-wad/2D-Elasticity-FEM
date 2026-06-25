@@ -29,7 +29,7 @@ public:
 	void SetIsDynamic(int d) { isDynamic = d; }
 	const int IsDynamic() const { return isDynamic; }
 	void SetTimeStepSize(double s) { timeStepSize = s; }
-	const int GetTimeStepSize() const { return timeStepSize; }
+	double GetTimeStepSize() const { return timeStepSize; }
 	void SetNumTimeSteps(int s) { numTimeStep = s; }
 	const int GetNumTimeSteps() const { return numTimeStep; }
 	void SetDynamicMethod(DynamicMethod d) { dynamicMethod = d; }
@@ -82,6 +82,13 @@ public:
 	const std::vector<double>& const GetDisplacementsX() { return globalDX; }
 	const std::vector<double>& const GetDisplacementsY() { return globalDY; }
 
+	const std::vector<std::vector<double>>& GetDispHistX() const { return globalDispHistX; }
+	const std::vector<std::vector<double>>& GetDispHistY() const { return globalDispHistY; }
+	const std::vector<std::vector<double>>& GetVeloHistX() const { return globalVeloHistX; }
+	const std::vector<std::vector<double>>& GetVeloHistY() const { return globalVeloHistY; }
+	const std::vector<std::vector<double>>& GetAccelHistX() const { return globalAccelHistX; }
+	const std::vector<std::vector<double>>& GetAccelHistY() const { return globalAccelHistY; }
+
 private:
 	Solver solver;
 	double thickness;
@@ -126,6 +133,14 @@ private:
 	std::vector<std::vector<double>> globalVeloHistory;
 	std::vector<std::vector<double>> globalAccelHistory;
 
+	std::vector<std::vector<double>> globalDispHistX;
+	std::vector<std::vector<double>> globalDispHistY;
+	std::vector<std::vector<double>> globalVeloHistX;
+	std::vector<std::vector<double>> globalVeloHistY;
+	std::vector<std::vector<double>> globalAccelHistX;
+	std::vector<std::vector<double>> globalAccelHistY;
+
+
 	// dynamic settings
 	int isDynamic;
 	double timeStepSize;
@@ -136,10 +151,10 @@ private:
 	int numDynamicPointLoads;
 	// in dynamic point loads are scaled by a factor each time step
 	// store those scalers in the map below
-	// key is node ID (must make sure it is in pointLoads), vector is the scaler with size of numtimestep
+	// key is load ID (must make sure it is in pointLoads), vector is the scaler with size of numtimestep
 	std::map<int, std::vector<double>> pointLoadHistory;
 
-	// same process for the distributed load scalings. element id is key
+	// same process for the point load scalings. load id is key
 	int numDynamicDistLoads;
 	std::map<int, std::vector<double>> distLoadHistory;
 
@@ -153,7 +168,7 @@ private:
 	// method to perform the creation of Element stiffness matrices
 	void DiscretizeK();
 	//void DiscretizeF(int currentStep = -1);
-	void DiscretizeF();
+	void DiscretizeF(int currentStep = -1);
 	void DiscretizeM();
 	void DiscretizeC();
 
@@ -172,7 +187,7 @@ private:
 	void FindConstrainedDOFs();
 
 	// these are applied directly to the nodes
-	void ApplyPointLoads();
+	void ApplyPointLoads(int currentStep = -1);
 
 	void SolveStatic();
 	void SolveDynamic();
