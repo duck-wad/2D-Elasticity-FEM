@@ -2,7 +2,7 @@
 
 A 2D finite element modeler for plane stress / plane strain problems. Build a rectangular mesh, apply supports and loads (including dynamic loads), run the solver, and view deformed shapes or animate dynamic results.
 
-![image-20260716220406257](C:\Users\Nick\AppData\Roaming\Typora\typora-user-images\image-20260716220406257.png)
+<img width="1857" height="522" alt="image" src="https://github.com/user-attachments/assets/ba3b2f7d-7fec-488a-97d4-b82ff5a3cb71" />
 
 ## Download & run
 
