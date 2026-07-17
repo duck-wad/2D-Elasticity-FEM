@@ -14,7 +14,7 @@ from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 
-from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -244,6 +244,10 @@ class MainWindow(QMainWindow):
         self._selected_node_1based: int = -1
         self._results: EngineResults | None = None
         self._deform_base_scale: float = 1.0
+        self._anim_step: int = 0
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(50)
+        self._anim_timer.timeout.connect(self._on_anim_tick)
         self._dist_edge_knm: dict[str, tuple[float, float, float, float]] = {}
         self._dist_meta: dict[str, dict[str, float | bool | str]] = {}
         # 1-based node id -> dynamic load metadata for export
@@ -521,8 +525,8 @@ class MainWindow(QMainWindow):
         btn_add_load.clicked.connect(self._add_point_load)
         pt.addWidget(btn_add_load)
 
-        self.tbl_loads = QTableWidget(0, 4)
-        self.tbl_loads.setHorizontalHeaderLabels(["Node", "fx", "fy", "Scale"])
+        self.tbl_loads = QTableWidget(0, 5)
+        self.tbl_loads.setHorizontalHeaderLabels(["ID", "Node", "fx", "fy", "Scale"])
         self.tbl_loads.setMinimumHeight(110)
         self.tbl_loads.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -535,9 +539,10 @@ class MainWindow(QMainWindow):
         self.tbl_loads.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         hdr = self.tbl_loads.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.tbl_loads.itemSelectionChanged.connect(self._on_load_row_selected)
         pt.addWidget(self.tbl_loads, stretch=1)
 
@@ -679,6 +684,36 @@ class MainWindow(QMainWindow):
         fr.addRow(self.lbl_deform_scale, self.sl_deform_scale)
         self.chk_show_deformed.toggled.connect(self._on_deform_display_changed)
         self.sl_deform_scale.valueChanged.connect(self._on_deform_slider_changed)
+
+        self.chk_animate = QCheckBox("Animate (dynamic)")
+        self.chk_animate.setEnabled(False)
+        self.chk_animate.toggled.connect(self._on_animate_toggled)
+        fr.addRow(self.chk_animate)
+
+        self._anim_controls = QWidget()
+        anim_form = QFormLayout(self._anim_controls)
+        anim_form.setContentsMargins(0, 0, 0, 0)
+        self.btn_anim_play = QPushButton("Play")
+        self.btn_anim_play.setCheckable(True)
+        self.btn_anim_play.toggled.connect(self._on_anim_play_toggled)
+        self.sl_anim_step = QSlider(Qt.Orientation.Horizontal)
+        self.sl_anim_step.setRange(0, 0)
+        self.sl_anim_step.setEnabled(False)
+        self.sl_anim_step.valueChanged.connect(self._on_anim_step_changed)
+        self.lbl_anim_step = QLabel("Step: —")
+        self.sp_anim_speed = NoWheelDoubleSpinBox()
+        self.sp_anim_speed.setRange(0.1, 60.0)
+        self.sp_anim_speed.setDecimals(1)
+        self.sp_anim_speed.setValue(10.0)
+        self.sp_anim_speed.setSuffix(" fps")
+        _spin_no_buttons(self.sp_anim_speed)
+        self.sp_anim_speed.valueChanged.connect(self._on_anim_speed_changed)
+        anim_form.addRow(self.btn_anim_play)
+        anim_form.addRow(self.lbl_anim_step, self.sl_anim_step)
+        anim_form.addRow("Speed", self.sp_anim_speed)
+        self._anim_controls.setVisible(False)
+        fr.addRow(self._anim_controls)
+
         left.addWidget(gb_results)
 
         btn_export = QPushButton("Compute")
@@ -746,7 +781,7 @@ class MainWindow(QMainWindow):
         """Remove loads marked dynamic from the tables; keep static loads."""
         rows_to_remove: list[int] = []
         for r in range(self.tbl_loads.rowCount()):
-            it = self.tbl_loads.item(r, 0)
+            it = self.tbl_loads.item(r, 1)
             if it is None:
                 continue
             try:
@@ -758,6 +793,7 @@ class MainWindow(QMainWindow):
                 self._load_meta.pop(nid, None)
         for r in reversed(rows_to_remove):
             self.tbl_loads.removeRow(r)
+        self._renumber_point_load_ids()
 
         edges_to_remove = [
             e
@@ -814,9 +850,9 @@ class MainWindow(QMainWindow):
             return
         r = rows[0].row()
         try:
-            nid = int(self.tbl_loads.item(r, 0).text())
-            fx = float(self.tbl_loads.item(r, 1).text())
-            fy = float(self.tbl_loads.item(r, 2).text())
+            nid = int(self.tbl_loads.item(r, 1).text())
+            fx = float(self.tbl_loads.item(r, 2).text())
+            fy = float(self.tbl_loads.item(r, 3).text())
         except (AttributeError, TypeError, ValueError):
             return
         self._selected_node_1based = nid
@@ -917,11 +953,19 @@ class MainWindow(QMainWindow):
         self._sync_load_table_after_mesh_change()
 
     def _clear_results(self) -> None:
+        self._stop_animation()
         self._results = None
+        self._anim_step = 0
         self.chk_show_deformed.setChecked(False)
         self.chk_show_deformed.setEnabled(False)
         self.sl_deform_scale.setEnabled(False)
         self.lbl_deform_scale.setEnabled(False)
+        self.chk_animate.setChecked(False)
+        self.chk_animate.setEnabled(False)
+        self._anim_controls.setVisible(False)
+        self.sl_anim_step.setEnabled(False)
+        self.sl_anim_step.setRange(0, 0)
+        self.lbl_anim_step.setText("Step: —")
 
     def _deform_scale_factor(self) -> float:
         return self._deform_base_scale * (self.sl_deform_scale.value() / 100.0)
@@ -934,20 +978,30 @@ class MainWindow(QMainWindow):
         if self.chk_show_deformed.isChecked():
             self._redraw_scene(fit_view=False)
 
+    def _current_frame_displacements(self) -> tuple[list[float], list[float]] | None:
+        if self._results is None:
+            return None
+        if self.chk_animate.isChecked() and self._results.has_animation:
+            return self._results.frame_displacements(self._anim_step)
+        return self._results.displacements_x, self._results.displacements_y
+
     def _node_model_xy(self, index: int, *, deformed: bool) -> tuple[float, float]:
         assert self._mesh is not None
         nx, ny = self._mesh.nodes[index]
-        if not deformed or self._results is None:
+        if not deformed:
             return nx, ny
+        frame = self._current_frame_displacements()
+        if frame is None:
+            return nx, ny
+        ux, uy = frame
         scale = self._deform_scale_factor()
-        ux = self._results.displacements_x[index]
-        uy = self._results.displacements_y[index]
-        return nx + scale * ux, ny + scale * uy
+        return nx + scale * ux[index], ny + scale * uy[index]
 
     def _apply_results(self, results: EngineResults) -> None:
         if self._mesh is None:
             return
         results.validate_mesh_nodes(self._mesh.num_nodes)
+        self._stop_animation()
         self._results = results
         max_u = results.max_magnitude()
         span = max(self._mesh.width, self._mesh.height)
@@ -961,7 +1015,94 @@ class MainWindow(QMainWindow):
         self.sl_deform_scale.setEnabled(True)
         self.lbl_deform_scale.setEnabled(True)
         self.chk_show_deformed.setChecked(True)
+
+        can_anim = results.has_animation
+        self.chk_animate.setEnabled(can_anim)
+        if can_anim:
+            n = len(results.displacement_history_x)
+            self.sl_anim_step.setRange(0, n - 1)
+            self._anim_step = n - 1
+            self.sl_anim_step.blockSignals(True)
+            self.sl_anim_step.setValue(self._anim_step)
+            self.sl_anim_step.blockSignals(False)
+            self._update_anim_step_label()
+            self.chk_animate.setChecked(True)
+        else:
+            self.chk_animate.setChecked(False)
+            self._anim_controls.setVisible(False)
+
         self._redraw_scene(fit_view=False)
+
+    def _stop_animation(self) -> None:
+        self._anim_timer.stop()
+        self.btn_anim_play.blockSignals(True)
+        self.btn_anim_play.setChecked(False)
+        self.btn_anim_play.setText("Play")
+        self.btn_anim_play.blockSignals(False)
+
+    def _on_animate_toggled(self, checked: bool) -> None:
+        self._anim_controls.setVisible(checked and self.chk_animate.isEnabled())
+        self.sl_anim_step.setEnabled(checked)
+        if not checked:
+            self._stop_animation()
+        if self.chk_show_deformed.isChecked():
+            self._redraw_scene(fit_view=False)
+
+    def _on_anim_play_toggled(self, playing: bool) -> None:
+        if playing:
+            if self._results is None or not self._results.has_animation:
+                self._stop_animation()
+                return
+            if not self.chk_animate.isChecked():
+                self.chk_animate.setChecked(True)
+            if not self.chk_show_deformed.isChecked():
+                self.chk_show_deformed.setChecked(True)
+            self.btn_anim_play.setText("Pause")
+            self._on_anim_speed_changed(self.sp_anim_speed.value())
+            # restart from beginning if at end
+            last = self.sl_anim_step.maximum()
+            if self._anim_step >= last:
+                self._set_anim_step(0)
+            self._anim_timer.start()
+        else:
+            self._anim_timer.stop()
+            self.btn_anim_play.setText("Play")
+
+    def _on_anim_speed_changed(self, fps: float) -> None:
+        fps = max(0.1, float(fps))
+        self._anim_timer.setInterval(int(1000.0 / fps))
+
+    def _on_anim_step_changed(self, step: int) -> None:
+        self._anim_step = int(step)
+        self._update_anim_step_label()
+        if self.chk_show_deformed.isChecked():
+            self._redraw_scene(fit_view=False)
+
+    def _set_anim_step(self, step: int) -> None:
+        self.sl_anim_step.blockSignals(True)
+        self.sl_anim_step.setValue(step)
+        self.sl_anim_step.blockSignals(False)
+        self._on_anim_step_changed(step)
+
+    def _update_anim_step_label(self) -> None:
+        if self._results is None or not self._results.has_animation:
+            self.lbl_anim_step.setText("Step: —")
+            return
+        n = len(self._results.displacement_history_x)
+        t = self._anim_step * self._results.time_step_size
+        self.lbl_anim_step.setText(
+            f"Step: {self._anim_step + 1}/{n}  t={_fmt_float(t)}"
+        )
+
+    def _on_anim_tick(self) -> None:
+        if self._results is None or not self._results.has_animation:
+            self._stop_animation()
+            return
+        last = self.sl_anim_step.maximum()
+        nxt = self._anim_step + 1
+        if nxt > last:
+            nxt = 0  # loop
+        self._set_anim_step(nxt)
 
     def _sync_load_table_after_mesh_change(self) -> None:
         if self._mesh is None:
@@ -969,7 +1110,7 @@ class MainWindow(QMainWindow):
         nmax = self._mesh.num_nodes
         rows_to_remove = []
         for r in range(self.tbl_loads.rowCount()):
-            it = self.tbl_loads.item(r, 0)
+            it = self.tbl_loads.item(r, 1)
             if it is None:
                 continue
             try:
@@ -980,13 +1121,18 @@ class MainWindow(QMainWindow):
             if nid < 1 or nid > nmax:
                 rows_to_remove.append(r)
         for r in reversed(rows_to_remove):
-            it = self.tbl_loads.item(r, 0)
+            it = self.tbl_loads.item(r, 1)
             if it is not None:
                 try:
                     self._load_meta.pop(int(it.text()), None)
                 except ValueError:
                     pass
             self.tbl_loads.removeRow(r)
+        self._renumber_point_load_ids()
+
+    def _renumber_point_load_ids(self) -> None:
+        for r in range(self.tbl_loads.rowCount()):
+            self.tbl_loads.setItem(r, 0, QTableWidgetItem(str(r + 1)))
 
     def _redraw_scene(self, *, fit_view: bool = False) -> None:
         self.scene.clear()
@@ -1138,9 +1284,9 @@ class MainWindow(QMainWindow):
         loads: list[tuple[int, float, float]] = []
         for r in range(self.tbl_loads.rowCount()):
             try:
-                nid = int(self.tbl_loads.item(r, 0).text())
-                fx = float(self.tbl_loads.item(r, 1).text())
-                fy = float(self.tbl_loads.item(r, 2).text())
+                nid = int(self.tbl_loads.item(r, 1).text())
+                fx = float(self.tbl_loads.item(r, 2).text())
+                fy = float(self.tbl_loads.item(r, 3).text())
             except (AttributeError, TypeError, ValueError):
                 continue
             loads.append((nid, fx, fy))
@@ -1416,29 +1562,32 @@ class MainWindow(QMainWindow):
             "scale_preset": str(self.cb_scale_preset.currentData() or "linear"),
         }
         for r in range(self.tbl_loads.rowCount()):
-            it = self.tbl_loads.item(r, 0)
+            it = self.tbl_loads.item(r, 1)
             if it is not None and int(it.text()) == nid:
                 self.tbl_loads.removeRow(r)
                 break
         row = self.tbl_loads.rowCount()
         self.tbl_loads.insertRow(row)
-        self.tbl_loads.setItem(row, 0, QTableWidgetItem(str(nid)))
-        self.tbl_loads.setItem(row, 1, QTableWidgetItem(_fmt_float(fx)))
-        self.tbl_loads.setItem(row, 2, QTableWidgetItem(_fmt_float(fy)))
-        self.tbl_loads.setItem(row, 3, QTableWidgetItem(self._load_dynamic_label(nid)))
+        self.tbl_loads.setItem(row, 0, QTableWidgetItem(str(row + 1)))
+        self.tbl_loads.setItem(row, 1, QTableWidgetItem(str(nid)))
+        self.tbl_loads.setItem(row, 2, QTableWidgetItem(_fmt_float(fx)))
+        self.tbl_loads.setItem(row, 3, QTableWidgetItem(_fmt_float(fy)))
+        self.tbl_loads.setItem(row, 4, QTableWidgetItem(self._load_dynamic_label(nid)))
+        self._renumber_point_load_ids()
         self.tbl_loads.selectRow(row)
         self._redraw_scene(fit_view=False)
 
     def _remove_load_row(self) -> None:
         r = self.tbl_loads.currentRow()
         if r >= 0:
-            it = self.tbl_loads.item(r, 0)
+            it = self.tbl_loads.item(r, 1)
             if it is not None:
                 try:
                     self._load_meta.pop(int(it.text()), None)
                 except ValueError:
                     pass
             self.tbl_loads.removeRow(r)
+            self._renumber_point_load_ids()
         self._redraw_scene(fit_view=False)
 
     def _build_export_model(self) -> ExportModel:
@@ -1508,9 +1657,9 @@ class MainWindow(QMainWindow):
         loads: list[PointLoad] = []
         for r in range(self.tbl_loads.rowCount()):
             try:
-                nid = int(self.tbl_loads.item(r, 0).text())
-                fx = float(self.tbl_loads.item(r, 1).text())
-                fy = float(self.tbl_loads.item(r, 2).text())
+                nid = int(self.tbl_loads.item(r, 1).text())
+                fx = float(self.tbl_loads.item(r, 2).text())
+                fy = float(self.tbl_loads.item(r, 3).text())
             except (AttributeError, ValueError):
                 continue
             meta = self._load_meta.get(nid, {})
@@ -1523,6 +1672,7 @@ class MainWindow(QMainWindow):
                     node_id=nid,
                     fx=fx * 1000.0,
                     fy=fy * 1000.0,
+                    load_id=r + 1,
                     is_dynamic=is_dyn,
                     scale_start=float(meta.get("scale_start", 0.0)),
                     scale_end=float(meta.get("scale_end", 1.0)),

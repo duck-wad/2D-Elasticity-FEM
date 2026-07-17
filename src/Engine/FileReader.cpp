@@ -375,7 +375,9 @@ void FileReader::ReadPointLoads(const std::string& line, Model& model, std::ifst
 		}
 	}
 	else
-		throw std::invalid_argument("Not a valid header");
+		throw std::invalid_argument(
+			"Not a valid point load line (expected 'id: <id> node: <nid> fx: ... fy: ...')"
+		);
 }
 
 void FileReader::ReadDistributedLoads(const std::string& line, Model& model, std::ifstream& infile) {

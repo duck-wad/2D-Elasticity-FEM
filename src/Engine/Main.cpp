@@ -30,24 +30,33 @@ void use_executable_directory() {
 }  // namespace
 
 int main() {
-	use_executable_directory();
+	try {
+		use_executable_directory();
 
-	Model model;
+		Model model;
 
-	FileReader filereader;
+		FileReader filereader;
 
-	filereader.ReadFile("INPUT.txt", model);
+		filereader.ReadFile("INPUT.txt", model);
 
-	// assemble the system of equations
-	model.Assemble();
- 
-	model.Solve();
+		// assemble the system of equations
+		model.Assemble();
 
-	model.ProcessResults();
-	
+		model.Solve();
 
+		model.ProcessResults();
 
-	FileWriter filewriter;
+		FileWriter filewriter;
 
-	filewriter.WriteFile("OUTPUT.json", model);
+		filewriter.WriteFile("OUTPUT.json", model);
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error: " << e.what() << std::endl;
+		return 1;
+	}
+	catch (...) {
+		std::cerr << "Error: unknown failure" << std::endl;
+		return 1;
+	}
+	return 0;
 }

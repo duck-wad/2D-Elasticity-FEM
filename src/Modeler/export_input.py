@@ -208,7 +208,8 @@ def export_input_text(model: ExportModel) -> str:
     lines.append("point loads:")
     lines.append(f" numloads: {len(model.point_loads)}")
     lines.append("")
-    for pl in model.point_loads:
+    for i, pl in enumerate(model.point_loads, start=1):
+        pl.load_id = i
         lines.append(
             f" id: {pl.load_id} node: {pl.node_id} "
             f"fx: {_fmt_float(pl.fx)} fy: {_fmt_float(pl.fy)}"
