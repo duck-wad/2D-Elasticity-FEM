@@ -701,16 +701,15 @@ class MainWindow(QMainWindow):
         self.sl_anim_step.setEnabled(False)
         self.sl_anim_step.valueChanged.connect(self._on_anim_step_changed)
         self.lbl_anim_step = QLabel("Step: —")
-        self.sp_anim_speed = NoWheelDoubleSpinBox()
-        self.sp_anim_speed.setRange(0.1, 60.0)
-        self.sp_anim_speed.setDecimals(1)
-        self.sp_anim_speed.setValue(10.0)
-        self.sp_anim_speed.setSuffix(" fps")
-        _spin_no_buttons(self.sp_anim_speed)
-        self.sp_anim_speed.valueChanged.connect(self._on_anim_speed_changed)
+        self.cb_anim_speed = NoWheelComboBox()
+        self.cb_anim_speed.addItem("Low", 250)
+        self.cb_anim_speed.addItem("Medium", 100)
+        self.cb_anim_speed.addItem("High", 40)
+        self.cb_anim_speed.setCurrentIndex(1)
+        self.cb_anim_speed.currentIndexChanged.connect(self._on_anim_speed_changed)
         anim_form.addRow(self.btn_anim_play)
         anim_form.addRow(self.lbl_anim_step, self.sl_anim_step)
-        anim_form.addRow("Speed", self.sp_anim_speed)
+        anim_form.addRow("Speed", self.cb_anim_speed)
         self._anim_controls.setVisible(False)
         fr.addRow(self._anim_controls)
 
@@ -1058,7 +1057,7 @@ class MainWindow(QMainWindow):
             if not self.chk_show_deformed.isChecked():
                 self.chk_show_deformed.setChecked(True)
             self.btn_anim_play.setText("Pause")
-            self._on_anim_speed_changed(self.sp_anim_speed.value())
+            self._on_anim_speed_changed()
             # restart from beginning if at end
             last = self.sl_anim_step.maximum()
             if self._anim_step >= last:
@@ -1068,9 +1067,11 @@ class MainWindow(QMainWindow):
             self._anim_timer.stop()
             self.btn_anim_play.setText("Play")
 
-    def _on_anim_speed_changed(self, fps: float) -> None:
-        fps = max(0.1, float(fps))
-        self._anim_timer.setInterval(int(1000.0 / fps))
+    def _on_anim_speed_changed(self, *_args) -> None:
+        interval_ms = self.cb_anim_speed.currentData()
+        if interval_ms is None:
+            interval_ms = 100
+        self._anim_timer.setInterval(int(interval_ms))
 
     def _on_anim_step_changed(self, step: int) -> None:
         self._anim_step = int(step)
