@@ -23,19 +23,14 @@ A 2D finite element modeler for plane stress / plane strain problems. Build a re
 ## Source code 
 
 - `src/Engine/` — C++ FEM solver (`fem_engine.exe`). Reads `INPUT.txt`, assembles and solves the system, writes `OUTPUT.json`.
-  - `Main.cpp` — program entry point; reads input, runs assembly/solve/results, writes output
   - `FileReader.cpp` — parses `INPUT.txt` into the engine model
-  - `FileWriter.cpp` — writes `OUTPUT.json` and optional debug CSV files
   - `Model.cpp` — main analysis workflow: global matrices, loads, boundary conditions, static/dynamic solve
-  - `Element.cpp` — Q4 element stiffness, mass, damping, and distributed load calculations
+  - `Element.cpp` — local element calculations
   - `Material.cpp` — material properties and elastic constitutive matrix
   - `Solver.cpp` — linear equation solvers
-  - `Structs.h` / `Enums.h` — shared load structs and analysis options
 - `src/Modeler/` — Python/Qt GUI (`fem_modeler.exe`).
   - `main.py` — main window, mesh view, loads/supports, results and animation
   - `mesh.py` — rectangular mesh generation
   - `export_input.py` — writes the engine `INPUT.txt`
   - `run_engine.py` — runs `fem_engine.exe`
   - `engine_results.py` — reads `OUTPUT.json`
-- `dist/` — packaged app (`fem_modeler.exe` + `fem_engine.exe`)
-- `src/build.ps1` — build script that produces `dist/`
